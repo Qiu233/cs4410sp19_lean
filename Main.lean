@@ -186,8 +186,18 @@ our_code_starts_here:"
   s!"{prelude}\n{asm_string}\n{suffix}"
 
 def _root_.main (args : List String) : IO Unit := do
-  let some input_file := args[0]? | panic! "input file does not exist"
+  let some input_file := args[0]? |
+    IO.println "no input file"
+    IO.Process.exit 255
+  let outIdx? := args.findIdx? (· == "-o")
+  let out? := outIdx? >>= fun x => args[x + 1]?
   let input_program ← IO.FS.readFile ⟨input_file⟩
-  let expr := match parse_expr.run input_program with | .ok expr => expr | .error e => panic! s!"parse failed due to error: {e}"
+  let expr ← match parse_expr.run input_program with
+    | .ok expr => pure expr
+    | .error e =>
+      IO.println s!"parse failed due to error: {e}"
+      IO.Process.exit 255
   let program := compile_prog expr
-  println! "{program}"
+  match out? with
+  | .some out => IO.FS.writeFile out program
+  | .none => println! "{program}"

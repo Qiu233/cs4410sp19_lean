@@ -15,8 +15,19 @@ $ clang -g -m32 -o our_code main.c our_code.o
 ## run
 
 ```bash
-$ lake exe cs4410sp19 ws/87.int > ws/87.s
-$ nasm -f elf32 -o ws/87.o ws/87.s
-$ clang -m32 -o ws/87.run wrapper/main.c ws/87.o
-$ ./ws/87.run
+$ lake run
 ```
+
+or
+
+```bash
+$ lake run .
+```
+
+or
+
+```bash
+$ lake run . main
+```
+
+where `main` can be replaced by another name as long as `name.int` exists in the folder `ws`.
