@@ -10,3 +10,10 @@ lean_lib «Cs4410sp19» where
 @[default_target]
 lean_exe "cs4410sp19" where
   root := `Main
+
+@[default_script]
+script «.» args do
+  let val ← exe `cs4410sp19 args.toArray
+  unless val == 0 do
+    return val
+  return 0
