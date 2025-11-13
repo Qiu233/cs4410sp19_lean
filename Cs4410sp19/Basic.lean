@@ -67,7 +67,7 @@ def Expr.is_imm (e : Expr) : Bool :=
 
 def Expr.is_anf (e : Expr) : Bool :=
   match e with
-  | .prim2 _ x y => x.is_anf && y.is_anf
+  | .prim2 _ x y => x.is_imm && y.is_imm
   | .let_in _ v k => v.is_anf && k.is_anf
   | .ite cond bp bn => cond.is_imm && bp.is_anf && bn.is_anf
   | _ => e.is_imm
