@@ -10,5 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Setup
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential gcc-multilib nasm
       - uses: actions/checkout@v4
       - uses: leanprover/lean-action@v1
