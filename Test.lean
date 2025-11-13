@@ -1,0 +1,63 @@
+-- import Cs4410sp19
+-- import Lean
+
+-- open Cs4410sp19
+-- open System
+
+
+-- partial def traverse [Monad m] [MonadLiftT IO m] (dir : FilePath) (x : FilePath → m Unit) : m Unit := do
+--   let es ← dir.readDir
+--   for e in es do
+--     let p := e.path
+--     let isDir ← p.isDir.toIO
+--     if isDir then
+--       traverse p x
+--     else
+--       x p
+
+-- open Lean in
+-- def f (file : FilePath) : CoreM Unit := do
+--   unless file.extension.isEqSome "int" do
+--     return
+--   let out := file.withExtension "out"
+--   unless (← out.pathExists) do
+--     logError m!"file \"{file}\" has no corresponding .out file, ignored"
+--     return
+--   if (← out.isDir) then
+--     logError m!"path \"{out}\" is a directory, ignored"
+--     return
+--   let expected ← IO.FS.readFile out
+--   let expected := s!"{expected}\n"
+--   let code ← IO.FS.readFile file
+--   let parse_result := parse_expr.run code
+--   let expr ←
+--     match parse_result with
+--     | .error e =>
+--       logError m!"parse of file \"{file}\" failed due to error: {e}"
+--       return
+--     | .ok e => pure e
+--   let program := compile_prog expr
+--   let asm_file := file.withExtension "s"
+--   let obj_file := file.withExtension "o"
+--   let run_file := file.withExtension "run"
+--   IO.FS.writeFile asm_file program
+--   -- let env := #[("LD_LIBRARY_PATH", none)]
+--   let b ← IO.Process.output { cmd := "nasm", args := #[ "-f", "elf32", "-o", obj_file.toString, asm_file.toString ] }
+--   unless b.exitCode = 0 do
+--     logError m!"failed to assemble the assembly source file \"{asm_file}\" due to error: {b.stderr}"
+--     return
+--   -- let cmd :=
+--   let b ← IO.Process.output { cmd := "gcc", args := #[ "-m32", "-o", run_file.toString, "wrapper/main.c", obj_file.toString ] }
+--   -- println! "{cmd.env}"
+--   unless b.exitCode = 0 do
+--     logError m!"failed to link the object file \"{obj_file}\" due to error: {b.stderr}"
+--     return
+--   let b ← IO.Process.run { cmd := run_file.toString }
+--   if b ≠ expected then
+--     logError m!"[{file}] failed: expected {expected}, but got {b}"
+--   else
+--     logInfo m!"[{file}] succeeded: {b}"
+
+-- run_meta do
+--   let tests_root : FilePath := "./tests"
+--   traverse tests_root (fun x => f x)
