@@ -6,25 +6,25 @@ mov eax, 0
 mov dword [esp + 4 * -1], eax
 mov eax, dword [esp + 4 * -1]
 mov dword [esp + 4 * -2], eax
-mov eax, 2
+mov eax, 0
 mov dword [esp + 4 * -3], eax
 mov eax, dword [esp + 4 * -2]
-add eax, dword [esp + 4 * -3]
-mov dword [esp + 4 * -2], eax
+cmp eax, dword [esp + 4 * -3]
+mov eax, 2147483649
+je label_equal_0
 mov eax, 1
-mov dword [esp + 4 * -3], eax
-mov eax, dword [esp + 4 * -2]
-sub eax, dword [esp + 4 * -3]
+label_equal_0:
 mov dword [esp + 4 * -2], eax
 mov eax, dword [esp + 4 * -2]
-cmp eax, 0
+cmp eax, 1
 je label_if_false_0
-mov eax, 2
+mov eax, 4
 mov dword [esp + 4 * -3], eax
-mov eax, 3
+mov eax, 6
 mov dword [esp + 4 * -4], eax
 mov eax, dword [esp + 4 * -3]
 mul dword [esp + 4 * -4]
+sar eax, 1
 jmp label_done_0
 label_if_false_0:
 mov eax, 0

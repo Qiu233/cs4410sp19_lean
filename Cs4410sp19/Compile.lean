@@ -40,7 +40,14 @@ def with_tmp_var (pref : String := "tmp") (x : String → Int → CompileM α) :
   with_new_var tmp (x tmp)
 
 def anf : Expr → CompileM Expr
-  | e@(.num _) | e@(.id _) => pure e
+  | e@(.num _) | e@(.id _)
+  | e@(.bool _) => pure e
+  | .prim1 op operand => do
+    let name ← gensym "oprnd"
+    .let_in name <$>
+      anf operand <*>
+      (pure (.prim1 op (.id name))
+      )
   | .prim2 op lhs rhs => do
     let name_lhs ← gensym "lhs"
     let name_rhs ← gensym "rhs"
@@ -77,6 +84,11 @@ theorem anf_is_anf {ctx env} (e : Expr) : Expr.IsANF (anf e ctx env).fst := by
       . apply IsImm.id
       . apply ihp
       . apply ihn
+  | prim1 op x ih =>
+    apply IsANF.let_in
+    . apply ih
+    . apply IsANF.prim1
+      apply IsImm.id
   | prim2 op lhs rhs ihl ihr =>
     apply IsANF.let_in
     . apply ihl
@@ -85,6 +97,9 @@ theorem anf_is_anf {ctx env} (e : Expr) : Expr.IsANF (anf e ctx env).fst := by
       . apply IsANF.prim2
         . apply IsImm.id
         . apply IsImm.id
+  | bool x =>
+    apply IsANF.of_imm
+    apply IsImm.bool
 
 open Expr in
 @[simp]
@@ -100,51 +115,160 @@ local infixl:65 " <++> " => combine_insts
 def Expr.arg_of_IsImm (e : Expr) : e.IsImm → CompileM Arg := fun _ => do
   match e with
   | .num x => return .const x
+  | .bool .false => return .const 0
+  | .bool .true => return .const 1
   | .id x =>
     let slot ← get_slot! x
     return Arg.of_slot slot
 
-def compile_anf (e : Expr) (h : e.IsANF) : CompileM (Array Instruction) := do
+def const_false : Arg := .const 0x00000001
+def const_true : Arg := .const 0x80000001
+
+def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileM Arg := do
   match e with
-  | .num n => return #[.mov (.reg .eax) (.const n)]
+  | .num n =>
+    if n > 1073741823 || n < -1073741824 then
+      throw s!"Integer overflow: {n}"
+    return .const (n <<< 1)
+  | .bool .false => return const_false
+  | .bool .true => return const_true
   | .id name =>
     let slot ← get_slot! name
-    return #[.mov (.reg .eax) (Arg.of_slot slot)]
+    return Arg.of_slot slot
+
+-- private def load (src : Arg) : Array Instruction :=
+--   #[ .mov (.reg .eax) src ]
+
+local macro "is_anf! " h:term : tactic => `(tactic| focus cases $h:term; contradiction; assumption)
+
+private def eax := Arg.reg (.eax)
+
+def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instruction) := do
+  match e with
+  | .num n =>
+    let arg ← compile_imm (.num n) (by simp)
+    return #[.mov eax arg]
+  | .bool x =>
+    let arg ← compile_imm (.bool x) (by simp)
+    return #[.mov eax arg]
+  | .id name =>
+    let arg ← compile_imm (.id name) (by simp)
+    return #[.mov eax arg]
   | .let_in name value cont =>
-    compile_anf value (by cases h; contradiction; assumption) <++> with_new_var name fun slot =>
-      pure #[ .mov (Arg.of_slot slot) (.reg .eax) ] <++> compile_anf cont (by cases h; contradiction; assumption)
-  | .prim2 .plus x y =>
-    let lhs ← x.arg_of_IsImm (by cases h; contradiction; assumption)
-    let rhs ← y.arg_of_IsImm (by cases h; contradiction; assumption)
-    return #[ .mov (.reg .eax) lhs, .add (.reg .eax) rhs ]
-  | .prim2 .minus x y =>
-    let lhs ← x.arg_of_IsImm (by cases h; contradiction; assumption)
-    let rhs ← y.arg_of_IsImm (by cases h; contradiction; assumption)
-    return #[ .mov (.reg .eax) lhs, .sub (.reg .eax) rhs ]
-  | .prim2 .times x y =>
-    let lhs ← x.arg_of_IsImm (by cases h; contradiction; assumption)
-    let rhs ← y.arg_of_IsImm (by cases h; contradiction; assumption)
-    return #[ .mov (.reg .eax) lhs, .mul rhs ]
+    compile_anf value (by is_anf! h) <++> with_new_var name fun slot =>
+      pure #[ .mov (Arg.of_slot slot) eax ] <++> compile_anf cont (by is_anf! h)
   | .ite cond bp bn =>
     let label_else ← gen_label "if_false"
     let label_done ← gen_label "done"
-    let c ← cond.arg_of_IsImm (by cases h; contradiction; assumption)
-    pure #[ .mov (.reg .eax) c, .cmp (.reg .eax) (.const 0), .je label_else ]
-      <++> compile_anf bp (by cases h; contradiction; assumption)
+    let c ← cond.arg_of_IsImm (by is_anf! h)
+    pure #[ .mov eax c, .cmp eax const_false, .je label_else ]
+      <++> compile_anf bp (by is_anf! h)
       <++> pure #[ .jmp label_done, .label label_else ]
-      <++> compile_anf bn (by cases h; contradiction; assumption)
+      <++> compile_anf bn (by is_anf! h)
       <++> pure #[ .label label_done ]
+  | .prim1 .neg x =>
+    let x ← x.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax (.const 0), .sub eax x ]
+  | .prim1 .not x =>
+    let x ← x.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax x, .xor eax (.const 0x8000_0000) ]
+  | .prim2 .plus x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax lhs, .add eax rhs ]
+  | .prim2 .minus x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax lhs, .sub eax rhs ]
+  | .prim2 .times x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax lhs, .mul rhs, .sar eax (.const 1) ]
+  | .prim2 .land x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax lhs, .and eax rhs ]
+  | .prim2 .lor x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    return #[ .mov eax lhs, .or eax rhs ]
+  | .prim2 .lt x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_less ← gen_label "less"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_true,
+      .jl label_less,
+      .mov eax const_false,
+      .label label_less ]
+  | .prim2 .le x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_le ← gen_label "less_eq"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_true,
+      .jle label_le,
+      .mov eax const_false,
+      .label label_le ]
+  | .prim2 .gt x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_greater ← gen_label "greater"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_true,
+      .jg label_greater,
+      .mov eax const_false,
+      .label label_greater ]
+  | .prim2 .ge x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_ge ← gen_label "greater_eq"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_true,
+      .jge label_ge,
+      .mov eax const_false,
+      .label label_ge ]
+  | .prim2 .eq x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_eq ← gen_label "equal"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_true,
+      .je label_eq,
+      .mov eax const_false,
+      .label label_eq ]
+  | .prim2 .ne x y =>
+    let lhs ← x.arg_of_IsImm (by is_anf! h)
+    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let label_ne ← gen_label "not_equal"
+    return #[
+      .mov eax lhs,
+      .cmp eax rhs,
+      .mov eax const_false,
+      .je label_ne,
+      .mov eax const_true,
+      .label label_ne ]
 
-def compile_expr (e : Expr) : CompileM (Array Instruction) := fun ctx env => do
+def compile_expr (e : Expr) : ExceptT String CompileM (Array Instruction) := fun ctx env => do
   let r := anf e ctx env
   compile_anf r.fst (by simp [r]) ctx r.snd
 
-def compile_prog (e : Expr) : String :=
-  let instrs := compile_expr e |>.run
+def compile_prog (e : Expr) : Except String String := do
+  let instrs ← compile_expr e |>.run.run
   let asm_string := asm_to_string instrs
   let prelude := "
 section .text
 global our_code_starts_here
 our_code_starts_here:"
   let suffix := "ret"
-  s!"{prelude}\n{asm_string}\n{suffix}"
+  return s!"{prelude}\n{asm_string}\n{suffix}"

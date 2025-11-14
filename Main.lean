@@ -15,7 +15,11 @@ def _root_.main (args : List String) : IO Unit := do
     | .error e =>
       IO.println s!"parse failed due to error: {e}"
       IO.Process.exit 255
-  let program := compile_prog expr
+  let program ← match compile_prog expr with
+    | .ok p => pure p
+    | .error e =>
+      IO.println s!"compilation failed due to error: {e}"
+      IO.Process.exit 255
   match out? with
   | .some out => IO.FS.writeFile out program
   | .none => println! "{program}"
