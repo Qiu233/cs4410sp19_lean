@@ -69,10 +69,10 @@ partial def parse_expr_inner : Parser Expr := do
   <|> attempt (Expr.id <$> parse_ident)
 
 partial def parse_neg : Parser Expr := do
-  attempt (atom "-" *> Expr.prim1 .neg <$> parse_expr_inner) <|> parse_expr_inner
+  attempt (atom "-" *> Expr.prim1 .neg <$> parse_neg) <|> parse_expr_inner
 
 partial def parse_not : Parser Expr := do
-  attempt (atom "!" *> Expr.prim1 .not <$> parse_neg) <|> parse_neg
+  attempt (atom "!" *> Expr.prim1 .not <$> parse_not) <|> parse_neg
 
 partial def parse_mul : Parser Expr := parse_infixl [("*", .times)] parse_not
 

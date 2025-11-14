@@ -64,6 +64,7 @@ def test_file (src_file : FilePath) : ScriptM Unit := do
 
 partial def traverse [Monad m] [MonadLiftT IO m] (dir : FilePath) (x : FilePath → m Unit) : m Unit := do
   let es ← dir.readDir
+  let es := List.mergeSort es.toList (fun x y => x.fileName ≤ y.fileName)
   for e in es do
     let p := e.path
     let isDir ← p.isDir.toIO

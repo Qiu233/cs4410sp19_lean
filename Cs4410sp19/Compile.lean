@@ -30,9 +30,10 @@ def with_new_var (name : String) (x : Int → CompileM α) : CompileM α := do
   let slot := slots.length + 1
   withReader (fun ctx => { ctx with slots := (name, slot) :: ctx.slots }) (x slot)
 
-def get_slot! (name : String) : CompileM Int := fun ctx =>
+def get_slot! (name : String) : ExceptT String CompileM Int := do
+  let ctx ← read
   match ctx.slots.lookup name with
-  | none => panic! s!"\"{name}\" is absent"
+  | none => throw s!"\"{name}\" is absent"
   | some x => return x
 
 def with_tmp_var (pref : String := "tmp") (x : String → Int → CompileM α) : CompileM α := do
@@ -112,7 +113,7 @@ private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruc
 
 local infixl:65 " <++> " => combine_insts
 
-def Expr.arg_of_IsImm (e : Expr) : e.IsImm → CompileM Arg := fun _ => do
+def Expr.arg_of_IsImm (e : Expr) : e.IsImm → ExceptT String CompileM Arg := fun _ => do
   match e with
   | .num x => return .const x
   | .bool .false => return .const 0
