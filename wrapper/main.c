@@ -17,6 +17,19 @@ int print(int val) {
   return val;
 }
 
+const int ERR_NOT_NUMBER = 1;
+const int ERR_NOT_BOOLEAN = 2;
+// other error codes here
+
+void error(int errCode, int val) {
+  if (errCode == ERR_NOT_NUMBER) {
+    fprintf(stderr, "Expected number, but got %010x\n", val);
+  } else if (errCode == ERR_NOT_BOOLEAN) {
+    fprintf(stderr, "Expected boolean, but got %010x\n", val);
+  }
+  exit(errCode);
+}
+
 extern int our_code_starts_here() asm("our_code_starts_here");
 
 int main(int argc, char** argv) {

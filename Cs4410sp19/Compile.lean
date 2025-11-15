@@ -128,18 +128,21 @@ def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileM Arg := do
     let slot ← get_slot! name
     return Arg.of_slot slot
 
--- private def load (src : Arg) : Array Instruction :=
---   #[ .mov (.reg .eax) src ]
-
 local macro "is_anf! " h:term : tactic => `(tactic| focus cases $h:term; contradiction; assumption)
 
 private def eax := Arg.reg (.eax)
+
+private def load_number_checked (src : Arg) : Array Instruction :=
+  #[ .mov eax src, .test eax (.const 0x00000001), .jnz "error_non_number" ]
+
+private def load_bool_checked (src : Arg) : Array Instruction :=
+  #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_number" ]
 
 def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instruction) := do
   match e with
   | .num n =>
     let arg ← compile_imm (.num n) (by simp)
-    return #[.mov eax arg]
+    return load_number_checked arg
   | .bool x =>
     let arg ← compile_imm (.bool x) (by simp)
     return #[.mov eax arg]
@@ -160,36 +163,35 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       <++> pure #[ .label label_done ]
   | .prim1 .neg x =>
     let x ← compile_imm x (by is_anf! h)
-    return #[ .mov eax (.const 0), .sub eax x ]
+    return load_number_checked x ++ #[ .mov eax (.const 0), .sub eax x ]
   | .prim1 .not x =>
     let x ← compile_imm x (by is_anf! h)
-    return #[ .mov eax x, .xor eax (.const 0x8000_0000) ]
+    return load_bool_checked x ++ #[ .xor eax (.const 0x8000_0000) ]
   | .prim2 .plus x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
-    return #[ .mov eax lhs, .add eax rhs ]
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .add eax rhs ]
   | .prim2 .minus x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
-    return #[ .mov eax lhs, .sub eax rhs ]
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .sub eax rhs ]
   | .prim2 .times x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
-    return #[ .mov eax lhs, .mul rhs, .sar eax (.const 1) ]
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .mul rhs, .sar eax (.const 1) ]
   | .prim2 .land x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
-    return #[ .mov eax lhs, .and eax rhs ]
+    return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .and eax rhs ]
   | .prim2 .lor x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
-    return #[ .mov eax lhs, .or eax rhs ]
+    return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .or eax rhs ]
   | .prim2 .lt x y =>
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_less ← gen_label "less"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_true,
       .jl label_less,
@@ -199,8 +201,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_le ← gen_label "less_eq"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_true,
       .jle label_le,
@@ -210,8 +211,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_greater ← gen_label "greater"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_true,
       .jg label_greater,
@@ -221,8 +221,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_ge ← gen_label "greater_eq"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_true,
       .jge label_ge,
@@ -232,8 +231,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_eq ← gen_label "equal"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_true,
       .je label_eq,
@@ -243,8 +241,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     let lhs ← compile_imm x (by is_anf! h)
     let rhs ← compile_imm y (by is_anf! h)
     let label_ne ← gen_label "not_equal"
-    return #[
-      .mov eax lhs,
+    return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
       .mov eax const_false,
       .je label_ne,
@@ -255,12 +252,26 @@ def compile_expr (e : Expr) : ExceptT String CompileM (Array Instruction) := fun
   let r := anf e ctx env
   compile_anf r.fst (by simp [r]) ctx r.snd
 
+def error_non_number := "
+error_non_number:
+  push eax
+  push 1
+  call error
+  add esp, 4 * 2
+"
+
+def helpers : List String := [error_non_number]
+
+def prelude : String := s!"
+section .text
+extern error
+global our_code_starts_here
+{String.intercalate "\n" helpers}
+our_code_starts_here:"
+
 def compile_prog (e : Expr) : Except String String := do
   let instrs ← compile_expr e |>.run.run
   let asm_string := asm_to_string instrs
-  let prelude := "
-section .text
-global our_code_starts_here
-our_code_starts_here:"
+  let prelude := «prelude»
   let suffix := "ret"
   return s!"{prelude}\n{asm_string}\n{suffix}"

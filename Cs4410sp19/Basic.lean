@@ -25,12 +25,15 @@ inductive Instruction where
   | xor : Arg → Arg → Instruction
   | label : String → Instruction
   | cmp : Arg → Arg → Instruction
+  | test : Arg → Arg → Instruction
   | jmp : String → Instruction
   | je : String → Instruction
   | jl : String → Instruction
   | jle : String → Instruction
   | jg : String → Instruction
   | jge : String → Instruction
+  | jz : String → Instruction
+  | jnz : String → Instruction
 deriving Inhabited
 
 instance : ToString Reg where
@@ -58,12 +61,15 @@ instance : ToString Instruction where
   | .xor dst src => s!"xor {dst}, {src}"
   | .label name => s!"{name}:"
   | .cmp x y => s!"cmp {x}, {y}"
+  | .test x y => s!"test {x}, {y}"
   | .jmp name => s!"jmp {name}"
   | .je name => s!"je {name}"
   | .jl name => s!"jl {name}"
   | .jle name => s!"jle {name}"
   | .jg name => s!"jg {name}"
   | .jge name => s!"jge {name}"
+  | .jz name => s!"jz {name}"
+  | .jnz name => s!"jnz {name}"
 
 def asm_to_string : Array Instruction → String := fun xs =>
   String.intercalate "\n" (xs.map toString).toList
