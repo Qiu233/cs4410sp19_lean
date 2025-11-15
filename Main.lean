@@ -10,12 +10,12 @@ def _root_.main (args : List String) : IO Unit := do
   let outIdx? := args.findIdx? (· == "-o")
   let out? := outIdx? >>= fun x => args[x + 1]?
   let input_program ← IO.FS.readFile ⟨input_file⟩
-  let expr ← match (parse_expr <* Std.Internal.Parsec.String.ws <* Std.Internal.Parsec.eof).run input_program with
+  let prog ← match (parse_prog <* Std.Internal.Parsec.String.ws <* Std.Internal.Parsec.eof).run input_program with
     | .ok expr => pure expr
     | .error e =>
       IO.println s!"parse failed due to error: {e}"
       IO.Process.exit 255
-  let program ← match compile_prog expr with
+  let program ← match compile_prog prog with
     | .ok p => pure p
     | .error e =>
       IO.println s!"compilation failed due to error: {e}"

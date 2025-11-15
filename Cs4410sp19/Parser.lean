@@ -21,10 +21,7 @@ def parse_infixl (ops : List (String × Prim2)) (next : Parser Expr) : Parser Ex
   let ts := ops.foldl (α := Expr → Parser Expr) (β := String × Prim2) (init := gen op) fun acc x => (fun t => acc t <|> (gen x) t)
   fix ts head
 
-variable (pe : Parser Expr)
-mutual
-
-partial def parse_num_val : Parser Int := do
+def parse_num_val : Parser Int := do
   let neg ← optional (pchar '-')
   let body ← digits
   ws
@@ -33,11 +30,27 @@ partial def parse_num_val : Parser Int := do
   else
     return body
 
-partial def parse_ident : Parser String := do
+def parse_ident_no_ws : Parser String := do
   let leading ← asciiLetter <|> pchar '_'
   let following ← many (asciiLetter <|> pchar '_' <|> digit)
-  ws
   return String.mk (leading :: following.toList)
+
+private def sepBy (sep : Parser Unit) (x : Parser α) (allow_ws : Bool := true) : Parser (Array α) := (do
+  let head ← x
+  if allow_ws then ws
+  let trailing ← many (sep *> x)
+  return #[head] ++ trailing) <|> pure #[]
+
+private def sepBy1 (sep : Parser α) (x : Parser α) (allow_ws : Bool := true) : Parser (Array α) := do
+  let head ← x
+  if allow_ws then ws
+  let trailing ← many (sep *> x)
+  return #[head] ++ trailing
+
+def parse_ident : Parser String := parse_ident_no_ws <* ws
+
+variable (pe : Parser Expr) in
+mutual
 
 partial def parse_let_in : Parser Expr := do
   atom "let"
@@ -60,12 +73,26 @@ partial def parse_ite : Parser Expr := do
   let bn ← pe
   return .ite cond bp bn
 
+partial def parse_exprs : Parser (Array Expr) := (do
+  let head ← pe
+  ws
+  let trailing ← many (atom "," *> pe)
+  return #[head] ++ trailing) <|> pure #[]
+
+partial def parse_function_call : Parser Expr := do
+  let name ← parse_ident_no_ws
+  atom "("
+  let args ← sepBy (atom ",") pe true
+  atom ")"
+  return .call name args.toList
+
 partial def parse_expr_inner : Parser Expr := do
   attempt (Expr.num <$> parse_num_val)
   <|> attempt parse_let_in <|> attempt parse_ite
   <|> attempt (pchar '(' *> ws *> pe <* ws <* pchar ')' <* ws)
   <|> attempt (atom "true" *> pure (.bool .true))
   <|> attempt (atom "false" *> pure (.bool .false))
+  <|> attempt parse_function_call
   <|> attempt (Expr.id <$> parse_ident)
 
 partial def parse_neg : Parser Expr := do
@@ -95,5 +122,19 @@ end
 partial def parse_expr : Parser Expr := do
   ws
   parse_expr_outer parse_expr
+
+def parse_function_decl : Parser Decl := do
+  atom "def"
+  let name ← parse_ident
+  atom "("
+  let ids ← sepBy (atom ",") parse_ident true
+  atom "):"
+  let body ← parse_expr
+  return Decl.mk name ids.toList body
+
+def parse_prog : Parser Program := do
+  let decls ← many parse_function_decl
+  let body ← parse_expr
+  return .mk decls body
 
 end

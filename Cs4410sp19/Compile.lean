@@ -3,44 +3,70 @@ import Cs4410sp19.Parser
 
 namespace Cs4410sp19
 
-structure Context where
-  slots : List (String × Int) := []
+inductive StackSlot where
+  /-- `ebp i` is `[ebp + i * 4]` -/
+  | ebp : Int → StackSlot
+  /-- `esp i` is `[esp + i * 4]` -/
+  | esp : Int → StackSlot
+deriving BEq, Inhabited, Repr
 
 structure Env where
+  function_names : Array String := #[]
+
+/-- context for sub-function compilation -/
+structure Context where
+  available_functions : Array String := #[]
+  arg_slots : List (String × StackSlot) := []
+  var_slots : List (String × StackSlot) := []
+
+/-- volatile state for sub-function compilation -/
+structure State where
   names : Std.HashMap String Nat := {}
+  max_stack_slots : Nat := 0
+  used_constants : Array String := #[]
 
-abbrev CompileM := ReaderT Context <| StateM Env
+abbrev CompileFuncM := ReaderT Context <| StateM State
 
-def CompileM.run : CompileM α → α := fun x => (x {} {}).fst
+def CompileFuncM.run : CompileFuncM α → α := fun x => (x {} {}).fst
+def CompileFuncM.run' : CompileFuncM α → Context → State → (α × State) := fun x c s => (x c s)
 
-def getEnv : CompileM Env := getThe Env
-
-def gensym (pref : String) : CompileM String := do
-  let count ← modifyGet (fun env =>
-    let names' := env.names.alter pref (fun | .none => .some 0 | .some x => .some x)
-    (names'[pref]!, { env with names := names'.modify pref (· + 1) }))
+def gensym (pref : String) : CompileFuncM String := do
+  let count ← modifyGet (fun s =>
+    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
+    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
   let name := s!"{pref}_{count}"
   return name
 
-def gen_label (suggestedName : String) : CompileM String := do
+def gen_label (suggestedName : String) : CompileFuncM String := do
   gensym s!"label_{suggestedName}"
 
-def with_new_var (name : String) (x : Int → CompileM α) : CompileM α := do
-  let slots ← Context.slots <$> read
-  let slot := slots.length + 1
-  withReader (fun ctx => { ctx with slots := (name, slot) :: ctx.slots }) (x slot)
+def with_args (ids : Array String) (x : Array (String × StackSlot) → CompileFuncM α) : CompileFuncM α := do
+  let new := ids.foldl (init := []) fun acc x => (x, StackSlot.ebp (acc.length + 2)) :: acc
+  withReader (fun ctx => { ctx with arg_slots := new }) (x new.toArray)
 
-def get_slot! (name : String) : ExceptT String CompileM Int := do
+def with_new_var (name : String) (x : StackSlot → CompileFuncM α) : CompileFuncM α := do
+  let slots ← Context.var_slots <$> read
+  let slot := .ebp (-(slots.length + 1))
+  modify (fun s => {s with max_stack_slots := s.max_stack_slots.max (slots.length + 1)})
+  withReader (fun ctx => { ctx with var_slots := (name, slot) :: ctx.var_slots }) (x slot)
+
+def get_slot! (name : String) : ExceptT String CompileFuncM StackSlot := do
   let ctx ← read
-  match ctx.slots.lookup name with
-  | none => throw s!"\"{name}\" is absent"
+  match ctx.var_slots.lookup name with -- search for variables first
+  | none =>
+    match ctx.arg_slots.lookup name with
+    | none => throw s!"\"{name}\" is undefined"
+    | some x => return x
   | some x => return x
 
-def with_tmp_var (pref : String := "tmp") (x : String → Int → CompileM α) : CompileM α := do
+def with_tmp_var (pref : String := "tmp") (x : String → StackSlot → CompileFuncM α) : CompileFuncM α := do
   let tmp ← gensym pref
   with_new_var tmp (x tmp)
 
-def anf : Expr → CompileM Expr
+def add_used_constants (name : String) : CompileFuncM Unit := do
+  modify fun s => {s with used_constants := s.used_constants.push name}
+
+def anf : Expr → CompileFuncM Expr
   | e@(.num _) | e@(.id _)
   | e@(.bool _) => pure e
   | .prim1 op operand => do
@@ -63,11 +89,20 @@ def anf : Expr → CompileM Expr
   | .ite cond bp bn => do
     let name ← gensym "tmp"
     .let_in name <$> (anf cond) <*> (Expr.ite (.id name) <$> anf bp <*> anf bn)
+  | .call name args => do
+    let names ← args.mapM fun x => do
+      let n ← gensym "tmp"
+      let y ← anf x
+      pure (n, y)
+    let i := Expr.call name (names.map (.id ∘ Prod.fst))
+    return names.foldr (init := i) (fun t acc => Expr.let_in t.fst t.snd acc)
+
+set_option warn.sorry false
 
 open Expr in
 @[simp]
-theorem anf_is_anf {ctx env} (e : Expr) : Expr.IsANF (anf e ctx env).fst := by
-  induction e generalizing env with
+theorem anf_is_anf {ctx s} (e : Expr) : Expr.IsANF (anf e ctx s).fst := by
+  cases e with
   | num x =>
     simp [anf]
     apply IsANF.of_imm
@@ -76,37 +111,52 @@ theorem anf_is_anf {ctx env} (e : Expr) : Expr.IsANF (anf e ctx env).fst := by
     simp [anf]
     apply IsANF.of_imm
     apply IsImm.id
-  | let_in name value kont ihv ihk =>
-    exact IsANF.let_in ihv ihk
-  | ite cond bp bn ihc ihp ihn =>
+  | let_in name value kont =>
+    simp [anf]
+    apply IsANF.let_in (anf_is_anf _) (anf_is_anf _)
+  | ite cond bp bn =>
+    simp [anf]
     apply IsANF.let_in
-    . apply ihc
+    . apply anf_is_anf
     . apply IsANF.ite
       . apply IsImm.id
-      . apply ihp
-      . apply ihn
-  | prim1 op x ih =>
+      . apply anf_is_anf
+      . apply anf_is_anf
+  | prim1 op x =>
+    simp [anf]
     apply IsANF.let_in
-    . apply ih
+    . apply anf_is_anf
     . apply IsANF.prim1
       apply IsImm.id
-  | prim2 op lhs rhs ihl ihr =>
+  | prim2 op lhs rhs =>
+    simp [anf]
     apply IsANF.let_in
-    . apply ihl
+    . apply anf_is_anf
     . apply IsANF.let_in
-      . apply ihr
+      . apply anf_is_anf
       . apply IsANF.prim2
         . apply IsImm.id
         . apply IsImm.id
   | bool x =>
+    simp [anf]
     apply IsANF.of_imm
     apply IsImm.bool
+  | call name args =>
+    simp [anf]
+    induction args generalizing s with
+    | nil =>
+      apply IsANF.call
+      intro _ h'
+      simp at h'
+    | cons arg args ih => sorry -- TODO: prove this. It is really hard.
 
 open Expr in
 @[simp]
 theorem anf_is_anf' (e : Expr) : Expr.IsANF (anf e).run := anf_is_anf e
 
-def Arg.of_slot : Int → Arg := fun slot => .reg_offset .esp (-slot)
+def StackSlot.to_arg : StackSlot → Arg
+  | .esp i => .reg_offset .esp i
+  | .ebp i => .reg_offset .ebp i
 
 private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruction) → m (Array Instruction) :=
   fun x y => (· ++ ·) <$> x <*> y
@@ -116,7 +166,7 @@ local infixl:65 " <++> " => combine_insts
 def const_false : Arg := .const 0x00000001
 def const_true : Arg := .const 0x80000001
 
-def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileM Arg := do
+def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileFuncM Arg := do
   match e with
   | .num n =>
     if n > 1073741823 || n < -1073741824 then
@@ -126,7 +176,7 @@ def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileM Arg := do
   | .bool .true => return const_true
   | .id name =>
     let slot ← get_slot! name
-    return Arg.of_slot slot
+    return slot.to_arg
 
 local macro "is_anf! " h:term : tactic => `(tactic| focus cases $h:term; contradiction; assumption)
 
@@ -136,9 +186,9 @@ private def load_number_checked (src : Arg) : Array Instruction :=
   #[ .mov eax src, .test eax (.const 0x00000001), .jnz "error_non_number" ]
 
 private def load_bool_checked (src : Arg) : Array Instruction :=
-  #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_number" ]
+  #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
 
-def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instruction) := do
+def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array Instruction) := do
   match e with
   | .num n =>
     let arg ← compile_imm (.num n) (by simp)
@@ -151,7 +201,7 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
     return #[.mov eax arg]
   | .let_in name value cont =>
     compile_anf value (by is_anf! h) <++> with_new_var name fun slot =>
-      pure #[ .mov (Arg.of_slot slot) eax ] <++> compile_anf cont (by is_anf! h)
+      pure #[ .mov (slot.to_arg) eax ] <++> compile_anf cont (by is_anf! h)
   | .ite cond bp bn =>
     let label_else ← gen_label "if_false"
     let label_done ← gen_label "done"
@@ -247,10 +297,58 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .je label_ne,
       .mov eax const_true,
       .label label_ne ]
+  | .call name args =>
+    let avai ← Context.available_functions <$> read
+    unless avai.contains name do
+      throw s!"function \"{name}\" is undefined"
+    add_used_constants name
+    let n := args.length
+    have : ∀ x ∈ args, x.IsImm := by cases h; contradiction; assumption
+    let mut ts := #[]
+    for h : arg in args do
+      ts := ts.push (← compile_imm arg (by apply this; apply h))
+    let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
+    return rs ++ #[ .call name, .add (.reg .esp) (.const (4 * n)) ]
 
-def compile_expr (e : Expr) : ExceptT String CompileM (Array Instruction) := fun ctx env => do
-  let r := anf e ctx env
+def compile_expr (e : Expr) : ExceptT String CompileFuncM (Array Instruction) := fun ctx s => do
+  let r := anf e ctx s
   compile_anf r.fst (by simp [r]) ctx r.snd
+
+abbrev CompileDeclM := ExceptT String (StateM Env)
+
+def func_prolog (n : Nat) : Array Instruction :=
+  #[ .push (.reg .ebp), .mov (.reg .ebp) (.reg .esp), .sub (.reg .esp) (.const (4 * n)) ]
+
+def func_epilog : Array Instruction :=
+  #[ .mov (.reg .esp) (.reg .ebp), .pop (.reg .ebp), .ret ]
+
+def compile_decl (e : Decl) : CompileDeclM (Array Instruction) := do
+  match e with
+  | .mk name ids body =>
+    let env ← get
+    if env.function_names.contains name then
+      throw s!"function \"{name}\" already exists"
+    if ids.eraseDups.length != ids.length then
+      throw s!"arguments {ids} contain duplicates"
+    let ns ← modifyGet fun env => (let function_names := env.function_names.push name; (function_names, {env with function_names}))
+    let do_compile := with_args ids.toArray fun _ => compile_expr body
+    let (result, s) := do_compile.run' { available_functions := ns } {}
+    let result ← result
+    let a : Array Instruction :=
+      func_prolog s.max_stack_slots
+      ++ result ++
+      func_epilog
+    return a
+
+def compile_prog_core (e : Program) : CompileDeclM (Array (String × (Array Instruction)) × (Array Instruction)) := do
+  let mut store := #[]
+  for d in e.decls do
+    store := store.push <| (d.name, ← compile_decl d)
+  let functions ← Env.function_names <$> get
+  let (result, s) := compile_expr e.exe_code |>.run' { available_functions := functions } {}
+  let result ← result
+  let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
+  return (store, result)
 
 def error_non_number := "
 error_non_number:
@@ -260,18 +358,40 @@ error_non_number:
   add esp, 4 * 2
 "
 
-def helpers : List String := [error_non_number]
+def error_non_bool := "
+error_non_bool:
+  push eax
+  push 2
+  call error
+  add esp, 4 * 2
+"
+
+def externs : List String := ["error", "print"]
+
+def helpers : List String := [error_non_number, error_non_bool]
 
 def prelude : String := s!"
 section .text
-extern error
+{String.intercalate "\n" (externs.map (s!"extern {·}"))}
 global our_code_starts_here
 {String.intercalate "\n" helpers}
 our_code_starts_here:"
 
-def compile_prog (e : Expr) : Except String String := do
-  let instrs ← compile_expr e |>.run.run
-  let asm_string := asm_to_string instrs
-  let prelude := «prelude»
-  let suffix := "ret"
-  return s!"{prelude}\n{asm_string}\n{suffix}"
+def compile_prog (e : Program) : Except String String := do
+  -- let instrs ← compile_expr e |>.run.run
+  let (decls, exe) ← compile_prog_core e |>.run' { function_names := #["print"] }
+  let ds := decls.map fun (d, is) =>
+    s!"{d}:\n{asm_to_string is}\n"
+  let ds := String.intercalate "\n" ds.toList
+  -- let asm_string := asm_to_string instrs
+  let main := asm_to_string exe
+  -- let prelude := «prelude»
+  -- let suffix := "ret"
+  -- return s!"{prelude}\n{asm_string}\n{suffix}"
+  return s!"section .text
+{String.intercalate "\n" (externs.map (s!"extern {·}"))}
+{String.intercalate "\n" helpers}
+{ds}
+global our_code_starts_here
+our_code_starts_here:
+{main}"

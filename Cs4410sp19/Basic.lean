@@ -4,6 +4,7 @@ namespace Cs4410sp19
 inductive Reg where
   | eax
   | esp
+  | ebp
 deriving Inhabited
 
 inductive Arg where
@@ -14,6 +15,10 @@ deriving Inhabited
 
 inductive Instruction where
   | mov : Arg → Arg → Instruction
+  | push : Arg → Instruction
+  | pop : Arg → Instruction
+  | call : String → Instruction
+  | ret : Instruction
   | add : Arg → Arg → Instruction
   | sub : Arg → Arg → Instruction
   | mul : Arg → Instruction
@@ -40,6 +45,7 @@ instance : ToString Reg where
   toString
   | .eax => "eax"
   | .esp => "esp"
+  | .ebp => "ebp"
 
 instance : ToString Arg where
   toString
@@ -50,6 +56,10 @@ instance : ToString Arg where
 instance : ToString Instruction where
   toString
   | .mov dst src => s!"mov {dst}, {src}"
+  | .push src => s!"push {src}"
+  | .pop src => s!"pop {src}"
+  | .call dst => s!"call {dst}"
+  | .ret => s!"ret"
   | .add dst src => s!"add {dst}, {src}"
   | .sub dst src => s!"sub {dst}, {src}"
   | .mul src => s!"mul {src}"
@@ -91,21 +101,17 @@ inductive Expr where
   | prim2 : Prim2 → Expr → Expr → Expr
   | ite : Expr → Expr → Expr → Expr
   | bool : Bool → Expr
+  | call : String → List Expr → Expr
 deriving Inhabited, Repr
 
-def Expr.is_imm (e : Expr) : Bool :=
-  match e with
-  | .num _ | .id _ => true
-  | .bool .true | .bool .false => true
-  | _ => false
+structure Decl where
+  name : String
+  params : List String
+  body : Expr
 
-def Expr.is_anf (e : Expr) : Bool :=
-  match e with
-  | .prim1 _ x => x.is_imm
-  | .prim2 _ x y => x.is_imm && y.is_imm
-  | .let_in _ v k => v.is_anf && k.is_anf
-  | .ite cond bp bn => cond.is_imm && bp.is_anf && bn.is_anf
-  | _ => e.is_imm
+structure Program where
+  decls : Array Decl
+  exe_code : Expr
 
 inductive Expr.IsImm : Expr → Prop where
   | num x : IsImm (.num x)
@@ -120,3 +126,67 @@ inductive Expr.IsANF : Expr → Prop where
   | prim2 {op : Prim2} {x y : Expr} : x.IsImm → y.IsImm → (Expr.prim2 op x y).IsANF
   | let_in {name} {v k : Expr} : v.IsANF → k.IsANF → (Expr.let_in name v k).IsANF
   | ite {cond bp bn : Expr} : cond.IsImm → bp.IsANF → bn.IsANF → (Expr.ite cond bp bn).IsANF
+  | call {name args} : (∀ arg ∈ args, arg.IsImm) → (Expr.call name args).IsANF
+
+instance Expr.IsImm.dec : DecidablePred Expr.IsImm := fun x => by
+  cases x with
+  | num _
+  | id _
+  | bool _ =>
+    apply Decidable.isTrue; simp
+  | _ =>
+    apply Decidable.isFalse
+    intro hn
+    cases hn
+
+local macro "neg!" : tactic => `(tactic| focus
+  apply Decidable.isFalse
+  intro hn
+  cases hn
+  contradiction
+  contradiction)
+
+instance Expr.IsANF.dec : DecidablePred Expr.IsANF := fun x => by
+  if h : x.IsImm then
+    apply Decidable.isTrue
+    apply Expr.IsANF.of_imm h
+  else
+    cases x with
+    | prim1 op x =>
+      if h' : x.IsImm then
+        apply Decidable.isTrue
+        apply Expr.IsANF.prim1 h'
+      else neg!
+    | prim2 op x y =>
+      if h1 : x.IsImm then
+        if h2 : y.IsImm then
+          apply Decidable.isTrue
+          apply Expr.IsANF.prim2 h1 h2
+        else neg!
+      else neg!
+    | let_in var value kont =>
+      match Expr.IsANF.dec value, Expr.IsANF.dec kont with
+      | .isFalse h1, _ => neg!
+      | .isTrue h1, .isFalse _ => neg!
+      | .isTrue h1, .isTrue h2 =>
+        apply Decidable.isTrue
+        apply Expr.IsANF.let_in h1 h2
+    | ite cond bp bn =>
+      match Expr.IsImm.dec cond, Expr.IsANF.dec bp, Expr.IsANF.dec bn with
+      | .isFalse h1, _, _ => neg!
+      | .isTrue h1, .isFalse h2, _ => neg!
+      | .isTrue h1, .isTrue h2, .isFalse _ => neg!
+      | .isTrue h1, .isTrue h2, .isTrue h3 =>
+        apply Decidable.isTrue
+        apply Expr.IsANF.ite h1 h2 h3
+    | call name args =>
+      have : Decidable (∀ x ∈ args, x.IsImm) := inferInstance
+      cases this with
+      | isFalse h' => neg!
+      | isTrue h' =>
+        apply Decidable.isTrue
+        apply Expr.IsANF.call h'
+    | _ =>
+      apply Decidable.isFalse
+      intro hn
+      cases hn <;> contradiction
