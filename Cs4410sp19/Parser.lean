@@ -184,7 +184,8 @@ partial def parse_expr : Parser Expr := do
   ws
   parse_expr_outer parse_expr
 
-def parse_function_decl : Parser Decl := do
+def parse_function_decl : Parser (Decl String.Pos) := do
+  let pos ← pos
   atom "def"
   let name ← parse_ident
   atom "("
@@ -192,12 +193,13 @@ def parse_function_decl : Parser Decl := do
   atom ")"
   atom ":"
   let body ← parse_expr
-  return Decl.function <| FuncDef.mk name ids.toList body
+  return Decl.function pos <| FuncDef.mk name ids.toList body
 
 def parse_prog : Parser (Program String.Pos) := do
+  let pos ← pos
   let decls ← many parse_function_decl
   let body ← parse_expr
-  return .mk decls body
+  return .mk pos decls body
 
 end
 

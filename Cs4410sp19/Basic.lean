@@ -132,97 +132,36 @@ partial def Expr.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : 
 
 def Expr.unsetTag : Expr α → Expr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
-structure FuncDef where
+structure FuncDef α where
   name : String
   params : List String
-  body : Expr String.Pos
+  body : Expr α
 
-inductive Decl where
-  | function : FuncDef → Decl
+def FuncDef.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : FuncDef α → m (FuncDef β) :=
+  fun ⟨name, params, body⟩ => do return ⟨name, params, ← body.mapM f⟩
 
-def Decl.name : Decl → String
-  | .function f => f.name
+def FuncDef.unsetTag : FuncDef α → FuncDef Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
+inductive Decl α where
+  | function : α → FuncDef α → Decl α
+
+def Decl.name : Decl α → String
+  | .function _ f => f.name
+
+def Decl.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Decl α → m (Decl β)
+  | .function tag d => .function <$> f tag <*> d.mapM f
+
+def Decl.unsetTag : Decl α → Decl Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
 structure Program (α : Type) where
-  decls : Array Decl
+  tag : α
+  decls : Array (Decl α)
   exe_code : Expr α
 
 def Program.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Program α → m (Program β) := fun p => do
+  let tag' ← f p.tag
+  let decls' ← (p.decls.mapM fun x => x.mapM f)
   let r ← p.exe_code.mapM f
-  return Program.mk p.decls r
+  return Program.mk tag' decls' r
 
 def Program.unsetTag : Program α → Program Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
-
-inductive ImmExpr (α : Type) where
-  | num   : α → Int → ImmExpr α
-  | bool  : α → Bool → ImmExpr α
-  | id    : α → String → ImmExpr α
-deriving Inhabited, Repr
-
-def ImmExpr.tag : ImmExpr α → α
-  | .num x ..
-  | .bool x ..
-  | .id x .. => x
-
-partial def ImmExpr.mapM {α β} {m : Type → Type} [Monad m] (f : α → m β) : ImmExpr α → m (ImmExpr β)
-  | num tag x => return num (← f tag) x
-  | bool tag x => return bool (← f tag) x
-  | id tag name => return id (← f tag) name
-
-def ImmExpr.unsetTag : ImmExpr α → ImmExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
-
-mutual
-
-inductive CExpr (α : Type) where
-  | prim1 : α → Prim1 → ImmExpr α → CExpr α
-  | prim2 : α → Prim2 → ImmExpr α → ImmExpr α → CExpr α
-  | ite   : α → ImmExpr α → AExpr α → AExpr α → CExpr α
-  | call  : α → String → List (ImmExpr α) → CExpr α
-  | imm   : ImmExpr α → CExpr α
-deriving Inhabited, Repr
-
-inductive AExpr (α : Type) where
-  | let_in : α → String → CExpr α → AExpr α → AExpr α
-  | cexpr : CExpr α → AExpr α
-deriving Inhabited, Repr
-
-end
-
-def CExpr.tag : CExpr α → α
-  | .prim1 x ..
-  | .prim2 x ..
-  | .ite x ..
-  | .call x .. => x
-  | .imm x => x.tag
-
-def AExpr.tag : AExpr α → α
-  | .let_in x .. => x
-  | .cexpr x => x.tag
-
-mutual
-
-partial def CExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f : α → m β) : CExpr α → m (CExpr β) := fun e => do
-  match e with
-  | .imm x => return .imm (← x.mapM f)
-  | .prim1 tag op x =>
-    return .prim1 (← f tag) op (← x.mapM f)
-  | .prim2 tag op x y =>
-    return .prim2 (← f tag) op (← x.mapM f) (← y.mapM f)
-  | .ite tag cond bp bn =>
-    return .ite (← f tag) (← cond.mapM f) (← bp.mapM f) (← bn.mapM f)
-  | .call tag name xs =>
-    return .call (← f tag) name (← xs.mapM (fun x => x.mapM f))
-
-partial def AExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f : α → m β) : AExpr α → m (AExpr β) := go
-where
-  go e := do
-    match e with
-    | .let_in tag name value kont =>
-      return .let_in (← f tag) name (← value.mapM f) (← go kont)
-    | .cexpr c => return .cexpr <| ← c.mapM f
-
-end
-
-def CExpr.unsetTag : CExpr α → CExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
-
-def AExpr.unsetTag : AExpr α → AExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
