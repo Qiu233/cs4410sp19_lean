@@ -74,6 +74,13 @@ partial def traverse [Monad m] [MonadLiftT IO m] (dir : FilePath) (x : FilePath 
       x p
 
 @[test_driver]
-script test do
-  traverse "./tests" test_file
+script test args do
+  let root : FilePath := "./tests"
+  let path := args.foldl (init := root) (· / ·)
+  unless ← path.pathExists do
+    throw <| IO.userError s!"path {path} does not exist"
+  if ← path.isDir then
+    traverse path test_file
+  else
+    test_file path
   return 0
