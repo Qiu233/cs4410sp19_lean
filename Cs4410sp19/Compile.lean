@@ -149,101 +149,6 @@ where
       let (imm, setup) ← helpI e
       return (CExpr.imm imm, setup)
 
-
-
-      -- .let_in name_lhs <$>
-      --   anf lhs <*>
-      --   (.let_in name_rhs <$>
-      --     anf rhs <*>
-      --     pure (.prim2 op (.id name_lhs) (.id name_rhs))
-      --   )
-  -- | e@(.num _) | e@(.id _)
-  -- | e@(.bool _) => pure e
-  -- | .prim1 op operand => do
-  --   let name ← gensym "oprnd"
-  --   .let_in name <$>
-  --     anf operand <*>
-  --     (pure (.prim1 op (.id name))
-  --     )
-  -- | .prim2 op lhs rhs => do
-  --   let name_lhs ← gensym "lhs"
-  --   let name_rhs ← gensym "rhs"
-  --   .let_in name_lhs <$>
-  --     anf lhs <*>
-  --     (.let_in name_rhs <$>
-  --       anf rhs <*>
-  --       pure (.prim2 op (.id name_lhs) (.id name_rhs))
-  --     )
-  -- | .let_in name value kont =>
-  --   .let_in name <$> (anf value) <*> (anf kont)
-  -- | .ite cond bp bn => do
-  --   let name ← gensym "tmp"
-  --   .let_in name <$> (anf cond) <*> (Expr.ite (.id name) <$> anf bp <*> anf bn)
-  -- | .call name args => do
-  --   let names ← args.mapM fun x => do
-  --     let n ← gensym "tmp"
-  --     let y ← anf x
-  --     pure (n, y)
-  --   let i := Expr.call name (names.map (.id ∘ Prod.fst))
-  --   return names.foldr (init := i) (fun t acc => Expr.let_in t.fst t.snd acc)
-
--- set_option warn.sorry false
-
--- open Expr in
--- @[simp]
--- theorem anf_is_anf {ctx s} (e : Expr) : Expr.IsANF (anf e ctx s).fst := by
---   cases e with
---   | num x =>
---     simp [anf]
---     apply IsANF.of_imm
---     apply IsImm.num
---   | id name =>
---     simp [anf]
---     apply IsANF.of_imm
---     apply IsImm.id
---   | let_in name value kont =>
---     simp [anf]
---     apply IsANF.let_in (anf_is_anf _) (anf_is_anf _)
---   | ite cond bp bn =>
---     simp [anf]
---     apply IsANF.let_in
---     . apply anf_is_anf
---     . apply IsANF.ite
---       . apply IsImm.id
---       . apply anf_is_anf
---       . apply anf_is_anf
---   | prim1 op x =>
---     simp [anf]
---     apply IsANF.let_in
---     . apply anf_is_anf
---     . apply IsANF.prim1
---       apply IsImm.id
---   | prim2 op lhs rhs =>
---     simp [anf]
---     apply IsANF.let_in
---     . apply anf_is_anf
---     . apply IsANF.let_in
---       . apply anf_is_anf
---       . apply IsANF.prim2
---         . apply IsImm.id
---         . apply IsImm.id
---   | bool x =>
---     simp [anf]
---     apply IsANF.of_imm
---     apply IsImm.bool
---   | call name args =>
---     simp [anf]
---     induction args generalizing s with
---     | nil =>
---       apply IsANF.call
---       intro _ h'
---       simp at h'
---     | cons arg args ih => sorry -- TODO: prove this. It is really hard.
-
--- open Expr in
--- @[simp]
--- theorem anf_is_anf' (e : Expr) : Expr.IsANF (anf e).run := anf_is_anf e
-
 def StackSlot.to_arg : StackSlot → Arg
   | .esp i => .reg_offset .esp i
   | .ebp i => .reg_offset .ebp i
@@ -477,7 +382,6 @@ global our_code_starts_here
 our_code_starts_here:"
 
 def compile_prog (e : Program) : Except String String := do
-  -- let instrs ← compile_expr e |>.run.run
   let (decls, exe) ← compile_prog_core e |>.run' { function_names := #["print"] }
   let ds := decls.map fun (d, is) =>
     s!"{d}:\n{asm_to_string is}\n"
