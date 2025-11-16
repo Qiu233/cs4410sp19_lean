@@ -18,28 +18,49 @@ error_non_bool:
 f:
 push ebp
 mov ebp, esp
-sub esp, 8
+sub esp, 12
+mov eax, 0
+test eax, 1
+jnz error_non_number
 mov eax, dword [ebp + 4 * 2]
+test eax, 1
+jnz error_non_number
+cmp eax, 0
+mov eax, 2147483649
+je label_equal_0
+mov eax, 1
+label_equal_0:
 mov dword [ebp + 4 * -1], eax
-mov eax, dword [ebp + 4 * 3]
+mov eax, dword [ebp + 4 * -1]
+cmp eax, 1
+je label_if_false_0
+mov eax, 2
+test eax, 1
+jnz error_non_number
+jmp label_done_0
+label_if_false_0:
+mov eax, 2
+test eax, 1
+jnz error_non_number
+mov eax, dword [ebp + 4 * 2]
+test eax, 1
+jnz error_non_number
+sub eax, 2
 mov dword [ebp + 4 * -2], eax
 mov eax, dword [ebp + 4 * -2]
+push eax
+call f
+add esp, 4
+mov dword [ebp + 4 * -3], eax
+mov eax, dword [ebp + 4 * -3]
 test eax, 1
 jnz error_non_number
-mov eax, dword [ebp + 4 * -1]
+mov eax, dword [ebp + 4 * 2]
 test eax, 1
 jnz error_non_number
-add eax, dword [ebp + 4 * -2]
-mov dword [ebp + 4 * -1], eax
-mov eax, dword [ebp + 4 * 4]
-mov dword [ebp + 4 * -2], eax
-mov eax, dword [ebp + 4 * -2]
-test eax, 1
-jnz error_non_number
-mov eax, dword [ebp + 4 * -1]
-test eax, 1
-jnz error_non_number
-sub eax, dword [ebp + 4 * -2]
+mul dword [ebp + 4 * -3]
+sar eax, 1
+label_done_0:
 mov esp, ebp
 pop ebp
 ret
@@ -48,56 +69,11 @@ global our_code_starts_here
 our_code_starts_here:
 push ebp
 mov ebp, esp
-sub esp, 16
-mov eax, 2
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -1], eax
-mov eax, 6
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -2], eax
-mov eax, 4
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -3], eax
-mov eax, dword [ebp + 4 * -3]
-push eax
-mov eax, dword [ebp + 4 * -2]
-push eax
-mov eax, dword [ebp + 4 * -1]
+sub esp, 0
+mov eax, 10
 push eax
 call f
-add esp, 12
-mov dword [ebp + 4 * -1], eax
-mov eax, 6
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -2], eax
-mov eax, 12
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -3], eax
-mov eax, 4
-test eax, 1
-jnz error_non_number
-mov dword [ebp + 4 * -4], eax
-mov eax, dword [ebp + 4 * -4]
-push eax
-mov eax, dword [ebp + 4 * -3]
-push eax
-mov eax, dword [ebp + 4 * -2]
-push eax
-call f
-add esp, 12
-mov dword [ebp + 4 * -2], eax
-mov eax, dword [ebp + 4 * -2]
-test eax, 1
-jnz error_non_number
-mov eax, dword [ebp + 4 * -1]
-test eax, 1
-jnz error_non_number
-add eax, dword [ebp + 4 * -2]
+add esp, 4
 mov esp, ebp
 pop ebp
 ret

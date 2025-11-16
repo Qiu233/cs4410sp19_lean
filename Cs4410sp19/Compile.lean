@@ -67,93 +67,182 @@ def with_tmp_var (pref : String := "tmp") (x : String → StackSlot → CompileF
 def add_used_constants (name : String) : CompileFuncM Unit := do
   modify fun s => {s with used_constants := s.used_constants.push name}
 
-def anf : Expr → CompileFuncM Expr
-  | e@(.num _) | e@(.id _)
-  | e@(.bool _) => pure e
-  | .prim1 op operand => do
-    let name ← gensym "oprnd"
-    .let_in name <$>
-      anf operand <*>
-      (pure (.prim1 op (.id name))
-      )
-  | .prim2 op lhs rhs => do
-    let name_lhs ← gensym "lhs"
-    let name_rhs ← gensym "rhs"
-    .let_in name_lhs <$>
-      anf lhs <*>
-      (.let_in name_rhs <$>
-        anf rhs <*>
-        pure (.prim2 op (.id name_lhs) (.id name_rhs))
-      )
-  | .let_in name value kont =>
-    .let_in name <$> (anf value) <*> (anf kont)
-  | .ite cond bp bn => do
-    let name ← gensym "tmp"
-    .let_in name <$> (anf cond) <*> (Expr.ite (.id name) <$> anf bp <*> anf bn)
-  | .call name args => do
-    let names ← args.mapM fun x => do
-      let n ← gensym "tmp"
-      let y ← anf x
-      pure (n, y)
-    let i := Expr.call name (names.map (.id ∘ Prod.fst))
-    return names.foldr (init := i) (fun t acc => Expr.let_in t.fst t.snd acc)
+partial def anf : Expr → CompileFuncM AExpr := helpA
+where
+  helpA (e : Expr) : CompileFuncM AExpr := do
+    let (ans, setup) ← helpC e
+    return setup.foldr (init := AExpr.cexpr ans) (fun (name, val) acc => AExpr.let_in name val acc)
+  helpI (e : Expr) : CompileFuncM (ImmExpr × Array (String × CExpr)) := do
+    match e with
+    | .num x => return (.num x, #[])
+    | .id x => return (.id x, #[])
+    | .bool x => return (.bool x, #[])
+    | .prim1 op operand =>
+      let (operand', is) ← helpI operand
+      let name_res ← gensym "result"
+      return (ImmExpr.id name_res, is ++ #[(name_res, CExpr.prim1 op operand')])
+    | .prim2 .times lhs rhs =>
+      let (lhs', ls) ← helpI lhs
+      let (rhs', rs) ← helpI rhs
+      let name_res ← gensym "result"
+      if rhs' matches .num _ then
+        -- trick: when rhs is an immediate number, say `6`, the instruction `mul 6` is invalid, so we must lift the immediate to a stack slot here
+        let name_tmp ← gensym "tmp"
+        return (ImmExpr.id name_res, ls ++ rs ++ #[(name_tmp, CExpr.imm rhs'), (name_res, CExpr.prim2 .times lhs' (ImmExpr.id name_tmp))])
+      else
+        return (ImmExpr.id name_res, ls ++ rs ++ #[(name_res, CExpr.prim2 .times lhs' rhs')])
+    | .prim2 op lhs rhs => do
+      let (lhs', ls) ← helpI lhs
+      let (rhs', rs) ← helpI rhs
+      let name_res ← gensym "result"
+      return (ImmExpr.id name_res, ls ++ rs ++ #[(name_res, CExpr.prim2 op lhs' rhs')])
+    | .let_in name value kont =>
+      let (value', cs) ← helpC value
+      let (kont', ks) ← helpC kont
+      let name_res ← gensym "result"
+      return (ImmExpr.id name_res, cs ++ #[(name, value')] ++ ks ++ #[(name_res, kont')])
+    | .ite cond bp bn =>
+      let (cond', setup) ← helpI cond
+      let bp' ← helpA bp
+      let bn' ← helpA bn
+      let name_res ← gensym "result"
+      return (ImmExpr.id name_res, setup ++ #[(name_res, CExpr.ite cond' bp' bn')])
+    | .call name args =>
+      let ts ← args.mapM helpI
+      let setups := ts.toArray.unzip.snd.flatMap id
+      let args' := ts.unzip.fst
+      let name_res ← gensym "result"
+      return (ImmExpr.id name_res, setups ++ #[(name_res, CExpr.call name args')])
+  helpC (e : Expr) : CompileFuncM (CExpr × Array (String × CExpr)) := do
+    match e with
+    | .prim1 op operand =>
+      let (operand', setup) ← helpI operand
+      return (CExpr.prim1 op operand', setup)
+    | .prim2 .times lhs rhs =>
+      let (lhs', ls) ← helpI lhs
+      let (rhs', rs) ← helpI rhs
+      if rhs' matches .num _ then
+        -- trick: when rhs is an immediate number, say `6`, the instruction `mul 6` is invalid, so we must lift the immediate to a stack slot here
+        let name_tmp ← gensym "tmp"
+        return (CExpr.prim2 .times lhs' (ImmExpr.id name_tmp), ls ++ rs ++ #[(name_tmp, CExpr.imm rhs')])
+      else
+        return (CExpr.prim2 .times lhs' rhs', ls ++ rs)
+    | .prim2 op lhs rhs =>
+      let (lhs', ls) ← helpI lhs
+      let (rhs', rs) ← helpI rhs
+      return (CExpr.prim2 op lhs' rhs', ls ++ rs)
+    | .let_in name value kont =>
+      let (value', cs) ← helpC value
+      let (kont', ks) ← helpC kont
+      return (kont', cs ++ #[(name, value')] ++ ks)
+    | .ite cond bp bn =>
+      let (cond', setup) ← helpI cond
+      let bp' ← helpA bp
+      let bn' ← helpA bn
+      return (CExpr.ite cond' bp' bn', setup)
+    | .call name args =>
+      let ts ← args.mapM helpI
+      let setups := ts.toArray.unzip.snd.flatMap id
+      let args' := ts.unzip.fst
+      return (CExpr.call name args', setups)
+    | _ =>
+      let (imm, setup) ← helpI e
+      return (CExpr.imm imm, setup)
 
-set_option warn.sorry false
 
-open Expr in
-@[simp]
-theorem anf_is_anf {ctx s} (e : Expr) : Expr.IsANF (anf e ctx s).fst := by
-  cases e with
-  | num x =>
-    simp [anf]
-    apply IsANF.of_imm
-    apply IsImm.num
-  | id name =>
-    simp [anf]
-    apply IsANF.of_imm
-    apply IsImm.id
-  | let_in name value kont =>
-    simp [anf]
-    apply IsANF.let_in (anf_is_anf _) (anf_is_anf _)
-  | ite cond bp bn =>
-    simp [anf]
-    apply IsANF.let_in
-    . apply anf_is_anf
-    . apply IsANF.ite
-      . apply IsImm.id
-      . apply anf_is_anf
-      . apply anf_is_anf
-  | prim1 op x =>
-    simp [anf]
-    apply IsANF.let_in
-    . apply anf_is_anf
-    . apply IsANF.prim1
-      apply IsImm.id
-  | prim2 op lhs rhs =>
-    simp [anf]
-    apply IsANF.let_in
-    . apply anf_is_anf
-    . apply IsANF.let_in
-      . apply anf_is_anf
-      . apply IsANF.prim2
-        . apply IsImm.id
-        . apply IsImm.id
-  | bool x =>
-    simp [anf]
-    apply IsANF.of_imm
-    apply IsImm.bool
-  | call name args =>
-    simp [anf]
-    induction args generalizing s with
-    | nil =>
-      apply IsANF.call
-      intro _ h'
-      simp at h'
-    | cons arg args ih => sorry -- TODO: prove this. It is really hard.
 
-open Expr in
-@[simp]
-theorem anf_is_anf' (e : Expr) : Expr.IsANF (anf e).run := anf_is_anf e
+      -- .let_in name_lhs <$>
+      --   anf lhs <*>
+      --   (.let_in name_rhs <$>
+      --     anf rhs <*>
+      --     pure (.prim2 op (.id name_lhs) (.id name_rhs))
+      --   )
+  -- | e@(.num _) | e@(.id _)
+  -- | e@(.bool _) => pure e
+  -- | .prim1 op operand => do
+  --   let name ← gensym "oprnd"
+  --   .let_in name <$>
+  --     anf operand <*>
+  --     (pure (.prim1 op (.id name))
+  --     )
+  -- | .prim2 op lhs rhs => do
+  --   let name_lhs ← gensym "lhs"
+  --   let name_rhs ← gensym "rhs"
+  --   .let_in name_lhs <$>
+  --     anf lhs <*>
+  --     (.let_in name_rhs <$>
+  --       anf rhs <*>
+  --       pure (.prim2 op (.id name_lhs) (.id name_rhs))
+  --     )
+  -- | .let_in name value kont =>
+  --   .let_in name <$> (anf value) <*> (anf kont)
+  -- | .ite cond bp bn => do
+  --   let name ← gensym "tmp"
+  --   .let_in name <$> (anf cond) <*> (Expr.ite (.id name) <$> anf bp <*> anf bn)
+  -- | .call name args => do
+  --   let names ← args.mapM fun x => do
+  --     let n ← gensym "tmp"
+  --     let y ← anf x
+  --     pure (n, y)
+  --   let i := Expr.call name (names.map (.id ∘ Prod.fst))
+  --   return names.foldr (init := i) (fun t acc => Expr.let_in t.fst t.snd acc)
+
+-- set_option warn.sorry false
+
+-- open Expr in
+-- @[simp]
+-- theorem anf_is_anf {ctx s} (e : Expr) : Expr.IsANF (anf e ctx s).fst := by
+--   cases e with
+--   | num x =>
+--     simp [anf]
+--     apply IsANF.of_imm
+--     apply IsImm.num
+--   | id name =>
+--     simp [anf]
+--     apply IsANF.of_imm
+--     apply IsImm.id
+--   | let_in name value kont =>
+--     simp [anf]
+--     apply IsANF.let_in (anf_is_anf _) (anf_is_anf _)
+--   | ite cond bp bn =>
+--     simp [anf]
+--     apply IsANF.let_in
+--     . apply anf_is_anf
+--     . apply IsANF.ite
+--       . apply IsImm.id
+--       . apply anf_is_anf
+--       . apply anf_is_anf
+--   | prim1 op x =>
+--     simp [anf]
+--     apply IsANF.let_in
+--     . apply anf_is_anf
+--     . apply IsANF.prim1
+--       apply IsImm.id
+--   | prim2 op lhs rhs =>
+--     simp [anf]
+--     apply IsANF.let_in
+--     . apply anf_is_anf
+--     . apply IsANF.let_in
+--       . apply anf_is_anf
+--       . apply IsANF.prim2
+--         . apply IsImm.id
+--         . apply IsImm.id
+--   | bool x =>
+--     simp [anf]
+--     apply IsANF.of_imm
+--     apply IsImm.bool
+--   | call name args =>
+--     simp [anf]
+--     induction args generalizing s with
+--     | nil =>
+--       apply IsANF.call
+--       intro _ h'
+--       simp at h'
+--     | cons arg args ih => sorry -- TODO: prove this. It is really hard.
+
+-- open Expr in
+-- @[simp]
+-- theorem anf_is_anf' (e : Expr) : Expr.IsANF (anf e).run := anf_is_anf e
 
 def StackSlot.to_arg : StackSlot → Arg
   | .esp i => .reg_offset .esp i
@@ -167,7 +256,7 @@ local infixl:65 " <++> " => combine_insts
 def const_false : Arg := .const 0x00000001
 def const_true : Arg := .const 0x80000001
 
-def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileFuncM Arg := do
+def ImmExpr.arg (e : ImmExpr) : ExceptT String CompileFuncM Arg := do
   match e with
   | .num n =>
     if n > 1073741823 || n < -1073741824 then
@@ -179,8 +268,6 @@ def compile_imm (e : Expr) (h : e.IsImm) : ExceptT String CompileFuncM Arg := do
     let slot ← get_slot! name
     return slot.to_arg
 
-local macro "is_anf! " h:term : tactic => `(tactic| focus cases $h:term; contradiction; assumption)
-
 private def eax := Arg.reg (.eax)
 
 private def load_number_checked (src : Arg) : Array Instruction :=
@@ -189,58 +276,50 @@ private def load_number_checked (src : Arg) : Array Instruction :=
 private def load_bool_checked (src : Arg) : Array Instruction :=
   #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
 
-def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array Instruction) := do
+mutual
+
+partial def compile_cexpr (e : CExpr) : ExceptT String CompileFuncM (Array Instruction) := do
   match e with
-  | .num n =>
-    let arg ← compile_imm (.num n) (by simp)
-    return load_number_checked arg
-  | .bool x =>
-    let arg ← compile_imm (.bool x) (by simp)
-    return #[.mov eax arg]
-  | .id name =>
-    let arg ← compile_imm (.id name) (by simp)
-    return #[.mov eax arg]
-  | .let_in name value cont =>
-    compile_anf value (by is_anf! h) <++> with_new_var name fun slot =>
-      pure #[ .mov (slot.to_arg) eax ] <++> compile_anf cont (by is_anf! h)
-  | .ite cond bp bn =>
-    let label_else ← gen_label "if_false"
-    let label_done ← gen_label "done"
-    let c ← compile_imm cond (by is_anf! h)
-    pure #[ .mov eax c, .cmp eax const_false, .je label_else ]
-      <++> compile_anf bp (by is_anf! h)
-      <++> pure #[ .jmp label_done, .label label_else ]
-      <++> compile_anf bn (by is_anf! h)
-      <++> pure #[ .label label_done ]
+  | .imm x =>
+    match x with
+    | .num n =>
+      let arg ← ImmExpr.arg (.num n)
+      return load_number_checked arg
+    | .bool x =>
+      let arg ← ImmExpr.arg (.bool x)
+      return #[.mov eax arg]
+    | .id name =>
+      let arg ← ImmExpr.arg (.id name)
+      return #[.mov eax arg]
   | .prim1 .neg x =>
-    let x ← compile_imm x (by is_anf! h)
+    let x ← x.arg
     return load_number_checked x ++ #[ .mov eax (.const 0), .sub eax x ]
   | .prim1 .not x =>
-    let x ← compile_imm x (by is_anf! h)
+    let x ← x.arg
     return load_bool_checked x ++ #[ .xor eax (.const 0x8000_0000) ]
   | .prim2 .plus x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .add eax rhs ]
   | .prim2 .minus x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .sub eax rhs ]
   | .prim2 .times x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .mul rhs, .sar eax (.const 1) ]
   | .prim2 .land x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .and eax rhs ]
   | .prim2 .lor x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .or eax rhs ]
   | .prim2 .lt x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_less ← gen_label "less"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -249,8 +328,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .mov eax const_false,
       .label label_less ]
   | .prim2 .le x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_le ← gen_label "less_eq"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -259,8 +338,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .mov eax const_false,
       .label label_le ]
   | .prim2 .gt x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_greater ← gen_label "greater"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -269,8 +348,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .mov eax const_false,
       .label label_greater ]
   | .prim2 .ge x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_ge ← gen_label "greater_eq"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -279,8 +358,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .mov eax const_false,
       .label label_ge ]
   | .prim2 .eq x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_eq ← gen_label "equal"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -289,8 +368,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .mov eax const_false,
       .label label_eq ]
   | .prim2 .ne x y =>
-    let lhs ← compile_imm x (by is_anf! h)
-    let rhs ← compile_imm y (by is_anf! h)
+    let lhs ← x.arg
+    let rhs ← y.arg
     let label_ne ← gen_label "not_equal"
     return load_number_checked rhs ++ load_number_checked lhs ++ #[
       .cmp eax rhs,
@@ -298,22 +377,39 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileFuncM (Array In
       .je label_ne,
       .mov eax const_true,
       .label label_ne ]
+  | .ite cond bp bn =>
+    let label_else ← gen_label "if_false"
+    let label_done ← gen_label "done"
+    let c ← cond.arg
+    pure #[ .mov eax c, .cmp eax const_false, .je label_else ]
+      <++> compile_anf bp
+      <++> pure #[ .jmp label_done, .label label_else ]
+      <++> compile_anf bn
+      <++> pure #[ .label label_done ]
   | .call name args =>
     let avai ← Context.available_functions <$> read
     unless avai.contains name do
       throw s!"function \"{name}\" is undefined"
     add_used_constants name
     let n := args.length
-    have : ∀ x ∈ args, x.IsImm := by cases h; contradiction; assumption
     let mut ts := #[]
-    for h : arg in args do
-      ts := ts.push (← compile_imm arg (by apply this; apply h))
+    for imm in args do
+      ts := ts.push (← imm.arg)
     let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
     return rs ++ #[ .call name, .add (.reg .esp) (.const (4 * n)) ]
 
+partial def compile_anf (e : AExpr) : ExceptT String CompileFuncM (Array Instruction) := do
+  match e with
+  | .cexpr c => compile_cexpr c
+  | .let_in name value cont =>
+    compile_cexpr value <++> with_new_var name fun slot =>
+      pure #[ .mov (slot.to_arg) eax ] <++> compile_anf cont
+
+end
+
 def compile_expr (e : Expr) : ExceptT String CompileFuncM (Array Instruction) := fun ctx s => do
   let r := anf e ctx s
-  compile_anf r.fst (by simp [r]) ctx r.snd
+  compile_anf r.fst ctx r.snd
 
 abbrev CompileDeclM := ExceptT String (StateM Env)
 
@@ -386,11 +482,7 @@ def compile_prog (e : Program) : Except String String := do
   let ds := decls.map fun (d, is) =>
     s!"{d}:\n{asm_to_string is}\n"
   let ds := String.intercalate "\n" ds.toList
-  -- let asm_string := asm_to_string instrs
   let main := asm_to_string exe
-  -- let prelude := «prelude»
-  -- let suffix := "ret"
-  -- return s!"{prelude}\n{asm_string}\n{suffix}"
   return s!"section .text
 {String.intercalate "\n" (externs.map (s!"extern {·}"))}
 {String.intercalate "\n" helpers}

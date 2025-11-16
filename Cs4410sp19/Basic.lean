@@ -190,3 +190,26 @@ instance Expr.IsANF.dec : DecidablePred Expr.IsANF := fun x => by
       apply Decidable.isFalse
       intro hn
       cases hn <;> contradiction
+
+inductive ImmExpr where
+  | num : Int → ImmExpr
+  | bool : Bool → ImmExpr
+  | id : String → ImmExpr
+deriving Inhabited, Repr
+
+mutual
+
+inductive CExpr where
+  | prim1 : Prim1 → ImmExpr → CExpr
+  | prim2 : Prim2 → ImmExpr → ImmExpr → CExpr
+  | ite : ImmExpr → AExpr → AExpr → CExpr
+  | call : String → List ImmExpr → CExpr
+  | imm : ImmExpr → CExpr
+deriving Inhabited, Repr
+
+inductive AExpr where
+  | let_in : String → CExpr → AExpr → AExpr
+  | cexpr : CExpr → AExpr
+deriving Inhabited, Repr
+
+end
