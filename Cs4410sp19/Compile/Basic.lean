@@ -50,19 +50,19 @@ section
 
 /-- context for sub-function compilation -/
 structure Context where
+  /-- (decl_name, decl_body_label) -/
+  current_decl? : Option (String × String)
   arg_slots : List (String × StackSlot) := []
   var_slots : List (String × StackSlot) := []
 
 /-- volatile state for sub-function compilation -/
 structure State where
   max_stack_slots : Nat := 0
-  used_constants : Array String := #[]
+  used_constants : Std.HashSet String := {}
 
 abbrev CompileFuncM := ReaderT Context <| StateT State CompileM
 
-def CompileFuncM.run : CompileFuncM α → CompileM α := fun x => Prod.fst <$> (x {} {})
-
-def CompileFuncM.run' : CompileFuncM α → Context → State → CompileM (α × State) := fun x c s => (x c s)
+def CompileFuncM.run : CompileFuncM α → Context → State → CompileM (α × State) := fun x c s => (x c s)
 
 end
 
@@ -90,7 +90,7 @@ def with_tmp_var (pref : String := "tmp") (x : String → StackSlot → CompileF
   with_new_var tmp (x tmp)
 
 def add_used_constants (name : String) : CompileFuncM Unit := do
-  modify fun s => {s with used_constants := s.used_constants.push name}
+  modify fun s => {s with used_constants := s.used_constants.insert name}
 
 private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruction) → m (Array Instruction) :=
   fun x y => (· ++ ·) <$> x <*> y

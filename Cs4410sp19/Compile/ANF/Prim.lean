@@ -106,21 +106,23 @@ private def load_number_checked (src : Arg) : Array Instruction :=
 private def load_bool_checked (src : Arg) : Array Instruction :=
   #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
 
+partial def compile_imm (e : ImmExpr α) : CompileFuncM (Array Instruction) := do
+  match e with
+  | .num _ n =>
+    let arg ← ImmExpr.arg (.num () n)
+    return load_number_checked arg
+  | .bool _ x =>
+    let arg ← ImmExpr.arg (.bool () x)
+    return #[.mov eax arg]
+  | .id _ name =>
+    let arg ← ImmExpr.arg (.id () name)
+    return #[.mov eax arg]
+
 mutual
 
-partial def compile_cexpr (e : CExpr α) : CompileFuncM (Array Instruction) := do
+partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
   match e with
-  | .imm x =>
-    match x with
-    | .num _ n =>
-      let arg ← ImmExpr.arg (.num () n)
-      return load_number_checked arg
-    | .bool _ x =>
-      let arg ← ImmExpr.arg (.bool () x)
-      return #[.mov eax arg]
-    | .id _ name =>
-      let arg ← ImmExpr.arg (.id () name)
-      return #[.mov eax arg]
+  | .imm x => compile_imm x
   | .prim1 _ .neg x =>
     let x ← x.arg
     return load_number_checked x ++ #[ .mov eax (.const 0), .sub eax x ]
@@ -211,27 +213,33 @@ partial def compile_cexpr (e : CExpr α) : CompileFuncM (Array Instruction) := d
     let label_else ← gen_label "if_false"
     let label_done ← gen_label "done"
     let c ← cond.arg
-    let ps ← compile_anf bp
-    let ns ← compile_anf bn
+    let ps ← compile_aexpr bp tail_pos
+    let ns ← compile_aexpr bn tail_pos
     return #[ .mov eax c, .cmp eax const_false, .je label_else ] ++ ps ++ #[ .jmp label_done, .label label_else ] ++ ns ++ #[ .label label_done ]
   | .call _ name args =>
     let avai ← Env.function_names <$> getThe Env
     unless avai.contains name do
       throw s!"function \"{name}\" is undefined"
     add_used_constants name
+    let asm_name := name.replace "-" "_"
     let n := args.length
     let mut ts := #[]
     for imm in args do
       ts := ts.push (← imm.arg)
-    let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
-    return rs ++ #[ .call (name.replace "-" "_"), .add (.reg .esp) (.const (4 * n)) ]
+    let current_decl? ← Context.current_decl? <$> read
+    if tail_pos && (Prod.fst <$> current_decl?).isEqSome name then -- calling self
+      let rs := ts.zipIdx |>.flatMap (fun (t, i) => #[ .mov eax t, .mov (.reg_offset .ebp (i + 2)) (.reg .eax) ])
+      return rs ++ #[ .jmp (current_decl?.get!.snd) ]
+    else
+      let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
+      return rs ++ #[ .call asm_name, .add (.reg .esp) (.const (4 * n)) ]
 
-partial def compile_anf (e : AExpr α) : CompileFuncM (Array Instruction) := do
+partial def compile_aexpr (e : AExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
   match e with
-  | .cexpr c => compile_cexpr c
+  | .cexpr c => compile_cexpr c tail_pos
   | .let_in _ name value cont =>
-    (· ++ ·) <$> compile_cexpr value <*> with_new_var name fun slot =>
-      (#[ .mov (slot.to_arg) eax ] ++ ·) <$> compile_anf cont
+    (· ++ ·) <$> compile_cexpr value false <*> with_new_var name fun slot =>
+      (#[ .mov (slot.to_arg) eax ] ++ ·) <$> compile_aexpr cont tail_pos
 
 end
 
@@ -266,10 +274,12 @@ def compile_anfed_function_def (e : AFuncDef α) : CompileM (Array Instruction) 
   if ids.eraseDups.length != ids.length then
     throw s!"arguments {ids} contain duplicates"
   let _ ← modifyGet fun env => (let function_names := env.function_names.push name; (function_names, {env with function_names}))
-  let do_compile := with_args ids.toArray fun _ => compile_anf body
-  let (result, s) ← do_compile.run' {} {}
+  let do_compile := with_args ids.toArray fun _ => compile_aexpr body true
+  let label_body ← gen_label s!"{name.replace "-" "_"}_body"
+  let (result, s) ← do_compile.run { current_decl? := (name, label_body) } {}
   let a : Array Instruction :=
     func_prolog s.max_stack_slots
+    ++ #[ .label label_body ]
     ++ result ++
     func_epilog
   return a
@@ -282,6 +292,6 @@ def compile_anfed_prog_core (e : AProgram α) : CompileM (Array (String × (Arra
   let mut store := #[]
   for d in e.decls do
     store := store.push <| (d.name.replace "-" "_", ← compile_anfed_decl d)
-  let (result, s) ← compile_anf e.exe_code |>.run' { } {}
+  let (result, s) ← compile_aexpr e.exe_code true |>.run { current_decl? := none } {}
   let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
   return (store, result)
