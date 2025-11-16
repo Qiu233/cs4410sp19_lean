@@ -1,1 +1,1 @@
-if false then true else false
+if false: true else: false

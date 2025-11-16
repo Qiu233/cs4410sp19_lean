@@ -10,9 +10,39 @@ inductive StackSlot where
   | esp : Int → StackSlot
 deriving BEq, Inhabited, Repr
 
+class MonadNameGen (m : Type → Type) where
+  gensym : String → m String
+
+instance {m n} [MonadLift m n] [inst : MonadNameGen m] : MonadNameGen n where
+  gensym x := MonadLift.monadLift (inst.gensym x)
+
+export MonadNameGen (gensym)
+
+section
+
 structure Env where
   names : Std.HashMap String Nat := {}
   function_names : Array String := #[]
+
+abbrev CompileM := ExceptT String (StateM Env)
+
+def CompileM.run : CompileM α → Env → (Except String α × Env) := fun x env => x env
+
+def CompileM.gensym (pref : String) : CompileM String := do
+  let count ← modifyGet (fun s =>
+    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
+    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
+  let name := s!"{pref}_{count}"
+  return name
+
+instance : MonadNameGen CompileM := ⟨CompileM.gensym⟩
+
+def gen_label [MonadNameGen m] (suggestedName : String) : m String :=
+  gensym s!"label_{suggestedName}"
+
+end
+
+section
 
 /-- context for sub-function compilation -/
 structure Context where
@@ -22,24 +52,16 @@ structure Context where
 
 /-- volatile state for sub-function compilation -/
 structure State where
-  names : Std.HashMap String Nat := {}
   max_stack_slots : Nat := 0
   used_constants : Array String := #[]
 
-abbrev CompileFuncM := ReaderT Context <| StateM State
+abbrev CompileFuncM := ReaderT Context <| StateT State CompileM
 
-def CompileFuncM.run : CompileFuncM α → α := fun x => (x {} {}).fst
-def CompileFuncM.run' : CompileFuncM α → Context → State → (α × State) := fun x c s => (x c s)
+def CompileFuncM.run : CompileFuncM α → CompileM α := fun x => Prod.fst <$> (x {} {})
 
-def gensym (pref : String) : CompileFuncM String := do
-  let count ← modifyGet (fun s =>
-    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
-    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
-  let name := s!"{pref}_{count}"
-  return name
+def CompileFuncM.run' : CompileFuncM α → Context → State → CompileM (α × State) := fun x c s => (x c s)
 
-def gen_label (suggestedName : String) : CompileFuncM String := do
-  gensym s!"label_{suggestedName}"
+end
 
 def with_args (ids : Array String) (x : Array (String × StackSlot) → CompileFuncM α) : CompileFuncM α := do
   let new := ids.foldl (init := []) fun acc x => (x, StackSlot.ebp (acc.length + 2)) :: acc
@@ -51,7 +73,7 @@ def with_new_var (name : String) (x : StackSlot → CompileFuncM α) : CompileFu
   modify (fun s => {s with max_stack_slots := s.max_stack_slots.max (slots.length + 1)})
   withReader (fun ctx => { ctx with var_slots := (name, slot) :: ctx.var_slots }) (x slot)
 
-def get_slot! (name : String) : ExceptT String CompileFuncM StackSlot := do
+def get_slot! (name : String) : CompileFuncM StackSlot := do
   let ctx ← read
   match ctx.var_slots.lookup name with -- search for variables first
   | none =>
@@ -161,7 +183,7 @@ local infixl:65 " <++> " => combine_insts
 def const_false : Arg := .const 0x00000001
 def const_true : Arg := .const 0x80000001
 
-def ImmExpr.arg (e : ImmExpr) : ExceptT String CompileFuncM Arg := do
+def ImmExpr.arg (e : ImmExpr) : CompileFuncM Arg := do
   match e with
   | .num n =>
     if n > 1073741823 || n < -1073741824 then
@@ -183,7 +205,7 @@ private def load_bool_checked (src : Arg) : Array Instruction :=
 
 mutual
 
-partial def compile_cexpr (e : CExpr) : ExceptT String CompileFuncM (Array Instruction) := do
+partial def compile_cexpr (e : CExpr) : CompileFuncM (Array Instruction) := do
   match e with
   | .imm x =>
     match x with
@@ -301,9 +323,9 @@ partial def compile_cexpr (e : CExpr) : ExceptT String CompileFuncM (Array Instr
     for imm in args do
       ts := ts.push (← imm.arg)
     let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
-    return rs ++ #[ .call name, .add (.reg .esp) (.const (4 * n)) ]
+    return rs ++ #[ .call (name.replace "-" "_"), .add (.reg .esp) (.const (4 * n)) ]
 
-partial def compile_anf (e : AExpr) : ExceptT String CompileFuncM (Array Instruction) := do
+partial def compile_anf (e : AExpr) : CompileFuncM (Array Instruction) := do
   match e with
   | .cexpr c => compile_cexpr c
   | .let_in name value cont =>
@@ -312,11 +334,9 @@ partial def compile_anf (e : AExpr) : ExceptT String CompileFuncM (Array Instruc
 
 end
 
-def compile_expr (e : Expr) : ExceptT String CompileFuncM (Array Instruction) := fun ctx s => do
-  let r := anf e ctx s
-  compile_anf r.fst ctx r.snd
-
-abbrev CompileDeclM := ExceptT String (StateM Env)
+def compile_expr (e : Expr) : CompileFuncM (Array Instruction) := do
+  let r ← anf e
+  compile_anf r
 
 def func_prolog (n : Nat) : Array Instruction :=
   #[ .push (.reg .ebp), .mov (.reg .ebp) (.reg .esp), .sub (.reg .esp) (.const (4 * n)) ]
@@ -324,7 +344,7 @@ def func_prolog (n : Nat) : Array Instruction :=
 def func_epilog : Array Instruction :=
   #[ .mov (.reg .esp) (.reg .ebp), .pop (.reg .ebp), .ret ]
 
-def compile_decl (e : Decl) : CompileDeclM (Array Instruction) := do
+def compile_decl (e : Decl) : CompileM (Array Instruction) := do
   match e with
   | .mk name ids body =>
     let env ← get
@@ -334,23 +354,19 @@ def compile_decl (e : Decl) : CompileDeclM (Array Instruction) := do
       throw s!"arguments {ids} contain duplicates"
     let ns ← modifyGet fun env => (let function_names := env.function_names.push name; (function_names, {env with function_names}))
     let do_compile := with_args ids.toArray fun _ => compile_expr body
-    let (result, s) := do_compile.run' { available_functions := ns } { names := ← Env.names <$> get }
-    modify fun env => { env with names := s.names }
-    let result ← result
+    let (result, s) ← do_compile.run' { available_functions := ns } {}
     let a : Array Instruction :=
       func_prolog s.max_stack_slots
       ++ result ++
       func_epilog
     return a
 
-def compile_prog_core (e : Program) : CompileDeclM (Array (String × (Array Instruction)) × (Array Instruction)) := do
+def compile_prog_core (e : Program) : CompileM (Array (String × (Array Instruction)) × (Array Instruction)) := do
   let mut store := #[]
   for d in e.decls do
-    store := store.push <| (d.name, ← compile_decl d)
+    store := store.push <| (d.name.replace "-" "_", ← compile_decl d)
   let functions ← Env.function_names <$> get
-  let (result, s) := compile_expr e.exe_code |>.run' { available_functions := functions } { names := ← Env.names <$> get }
-  modify fun env => { env with names := s.names }
-  let result ← result
+  let (result, s) ← compile_expr e.exe_code |>.run' { available_functions := functions } {}
   let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
   return (store, result)
 

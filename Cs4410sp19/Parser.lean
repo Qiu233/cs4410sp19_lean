@@ -32,7 +32,7 @@ def parse_num_val : Parser Int := do
 
 def parse_ident_no_ws : Parser String := do
   let leading ← asciiLetter <|> pchar '_'
-  let following ← many (asciiLetter <|> pchar '_' <|> digit)
+  let following ← many (asciiLetter <|> pchar '_' <|> pchar '-' <|> digit)
   return String.mk (leading :: following.toList)
 
 private def sepBy (sep : Parser Unit) (x : Parser α) (allow_ws : Bool := true) : Parser (Array α) := (do
@@ -67,9 +67,10 @@ partial def parse_let_in : Parser Expr := do
 partial def parse_ite : Parser Expr := do
   atom "if"
   let cond ← pe
-  atom "then"
+  atom ":"
   let bp ← pe
   atom "else"
+  atom ":"
   let bn ← pe
   return .ite cond bp bn
 
@@ -128,7 +129,8 @@ def parse_function_decl : Parser Decl := do
   let name ← parse_ident
   atom "("
   let ids ← sepBy (atom ",") parse_ident true
-  atom "):"
+  atom ")"
+  atom ":"
   let body ← parse_expr
   return Decl.mk name ids.toList body
 

@@ -1,4 +1,9 @@
-def f(a):
-    if a == 0 then 1 else a * f(a - 1) 
+def fact_v1(n):
+  if n <= 1: 1
+  else: n * fact_v1(n - 1)
 
-f(5)
+def fact-tail(n, acc):
+  if n <= 1: acc
+  else: fact-tail(n - 1, n * acc)
+
+fact-tail(5, 1)
