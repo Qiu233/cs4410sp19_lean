@@ -113,15 +113,6 @@ private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruc
 
 local infixl:65 " <++> " => combine_insts
 
-def Expr.arg_of_IsImm (e : Expr) : e.IsImm → ExceptT String CompileM Arg := fun _ => do
-  match e with
-  | .num x => return .const x
-  | .bool .false => return .const 0
-  | .bool .true => return .const 1
-  | .id x =>
-    let slot ← get_slot! x
-    return Arg.of_slot slot
-
 def const_false : Arg := .const 0x00000001
 def const_true : Arg := .const 0x80000001
 
@@ -161,41 +152,41 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
   | .ite cond bp bn =>
     let label_else ← gen_label "if_false"
     let label_done ← gen_label "done"
-    let c ← cond.arg_of_IsImm (by is_anf! h)
+    let c ← compile_imm cond (by is_anf! h)
     pure #[ .mov eax c, .cmp eax const_false, .je label_else ]
       <++> compile_anf bp (by is_anf! h)
       <++> pure #[ .jmp label_done, .label label_else ]
       <++> compile_anf bn (by is_anf! h)
       <++> pure #[ .label label_done ]
   | .prim1 .neg x =>
-    let x ← x.arg_of_IsImm (by is_anf! h)
+    let x ← compile_imm x (by is_anf! h)
     return #[ .mov eax (.const 0), .sub eax x ]
   | .prim1 .not x =>
-    let x ← x.arg_of_IsImm (by is_anf! h)
+    let x ← compile_imm x (by is_anf! h)
     return #[ .mov eax x, .xor eax (.const 0x8000_0000) ]
   | .prim2 .plus x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     return #[ .mov eax lhs, .add eax rhs ]
   | .prim2 .minus x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     return #[ .mov eax lhs, .sub eax rhs ]
   | .prim2 .times x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     return #[ .mov eax lhs, .mul rhs, .sar eax (.const 1) ]
   | .prim2 .land x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     return #[ .mov eax lhs, .and eax rhs ]
   | .prim2 .lor x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     return #[ .mov eax lhs, .or eax rhs ]
   | .prim2 .lt x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_less ← gen_label "less"
     return #[
       .mov eax lhs,
@@ -205,8 +196,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .mov eax const_false,
       .label label_less ]
   | .prim2 .le x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_le ← gen_label "less_eq"
     return #[
       .mov eax lhs,
@@ -216,8 +207,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .mov eax const_false,
       .label label_le ]
   | .prim2 .gt x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_greater ← gen_label "greater"
     return #[
       .mov eax lhs,
@@ -227,8 +218,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .mov eax const_false,
       .label label_greater ]
   | .prim2 .ge x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_ge ← gen_label "greater_eq"
     return #[
       .mov eax lhs,
@@ -238,8 +229,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .mov eax const_false,
       .label label_ge ]
   | .prim2 .eq x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_eq ← gen_label "equal"
     return #[
       .mov eax lhs,
@@ -249,8 +240,8 @@ def compile_anf (e : Expr) (h : e.IsANF) : ExceptT String CompileM (Array Instru
       .mov eax const_false,
       .label label_eq ]
   | .prim2 .ne x y =>
-    let lhs ← x.arg_of_IsImm (by is_anf! h)
-    let rhs ← y.arg_of_IsImm (by is_anf! h)
+    let lhs ← compile_imm x (by is_anf! h)
+    let rhs ← compile_imm y (by is_anf! h)
     let label_ne ← gen_label "not_equal"
     return #[
       .mov eax lhs,
