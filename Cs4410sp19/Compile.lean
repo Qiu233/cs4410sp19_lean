@@ -11,6 +11,7 @@ inductive StackSlot where
 deriving BEq, Inhabited, Repr
 
 structure Env where
+  names : Std.HashMap String Nat := {}
   function_names : Array String := #[]
 
 /-- context for sub-function compilation -/
@@ -332,7 +333,8 @@ def compile_decl (e : Decl) : CompileDeclM (Array Instruction) := do
       throw s!"arguments {ids} contain duplicates"
     let ns ← modifyGet fun env => (let function_names := env.function_names.push name; (function_names, {env with function_names}))
     let do_compile := with_args ids.toArray fun _ => compile_expr body
-    let (result, s) := do_compile.run' { available_functions := ns } {}
+    let (result, s) := do_compile.run' { available_functions := ns } { names := ← Env.names <$> get }
+    modify fun env => { env with names := s.names }
     let result ← result
     let a : Array Instruction :=
       func_prolog s.max_stack_slots
@@ -345,7 +347,8 @@ def compile_prog_core (e : Program) : CompileDeclM (Array (String × (Array Inst
   for d in e.decls do
     store := store.push <| (d.name, ← compile_decl d)
   let functions ← Env.function_names <$> get
-  let (result, s) := compile_expr e.exe_code |>.run' { available_functions := functions } {}
+  let (result, s) := compile_expr e.exe_code |>.run' { available_functions := functions } { names := ← Env.names <$> get }
+  modify fun env => { env with names := s.names }
   let result ← result
   let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
   return (store, result)
