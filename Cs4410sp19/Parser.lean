@@ -3,9 +3,48 @@ import Cs4410sp19.Basic
 
 namespace Cs4410sp19
 
+structure FileMap where
+  private mk' ::
+  private src : String
+  /-- [0, ..., eoi+1] -/
+  private indexes : Array (String.Pos)
+
+structure Location where
+  row : Nat
+  column : Nat
+deriving Inhabited, Repr
+
+/-- returns `none` if out of range -/
+def FileMap.lookup : FileMap → String.Pos → Option Location
+  | ⟨src, xs⟩, pos => do
+    assert! xs.isEmpty
+    let lineStartIdx ← List.range (xs.size - 1) |>.find? fun i => pos < xs[i + 1]!
+    let mut lineStart := xs[lineStartIdx]!
+    let mut count := 0
+    while lineStart < pos do
+      lineStart := src.next lineStart
+      count := count + 1
+    return ⟨lineStartIdx, count⟩
+
+def FileMap.mk : String → FileMap := fun s => Id.run do
+  let mut pos : String.Pos := ⟨0⟩
+  let mut indexes := #[pos]
+  let endPos := s.endPos
+  while pos < endPos do
+    pos := s.next pos
+    let c := s.get pos
+    if c == '\n' then
+      indexes := indexes.push pos
+  indexes := indexes.push endPos
+  return ⟨s, indexes⟩
+
 open Std.Internal.Parsec Std.Internal.Parsec.String in
 
 section
+
+def pos : Parser String.Pos := fun it => ParseResult.success it it.i
+
+local notation "Expr" => Expr String.Pos
 
 private def atom : String → Parser Unit := fun x => pstring x *> ws
 
@@ -17,7 +56,7 @@ def parse_infixl (ops : List (String × Prim2)) (next : Parser Expr) : Parser Ex
   ws
   assert! ops.length != 0
   let op :: ops := ops | unreachable!
-  let gen := fun (op, op') => fun c => pstring op *> ws *> (Expr.prim2 op' c <$> next) <* ws
+  let gen := fun (op, op') => fun c => pstring op *> ws *> (Expr.prim2 head.tag op' c <$> next) <* ws
   let ts := ops.foldl (α := Expr → Parser Expr) (β := String × Prim2) (init := gen op) fun acc x => (fun t => acc t <|> (gen x) t)
   fix ts head
 
@@ -53,6 +92,7 @@ variable (pe : Parser Expr) in
 mutual
 
 partial def parse_let_in : Parser Expr := do
+  let pos ← pos
   atom "let"
   let name ← parse_ident
   ws
@@ -62,9 +102,10 @@ partial def parse_let_in : Parser Expr := do
   atom "in"
   let body ← pe
   ws
-  return .let_in name value body
+  return .let_in pos name value body
 
 partial def parse_ite : Parser Expr := do
+  let pos ← pos
   atom "if"
   let cond ← pe
   atom ":"
@@ -72,7 +113,7 @@ partial def parse_ite : Parser Expr := do
   atom "else"
   atom ":"
   let bn ← pe
-  return .ite cond bp bn
+  return .ite pos cond bp bn
 
 partial def parse_exprs : Parser (Array Expr) := (do
   let head ← pe
@@ -81,26 +122,45 @@ partial def parse_exprs : Parser (Array Expr) := (do
   return #[head] ++ trailing) <|> pure #[]
 
 partial def parse_function_call : Parser Expr := do
+  let pos ← pos
   let name ← parse_ident_no_ws
   atom "("
   let args ← sepBy (atom ",") pe true
   atom ")"
-  return .call name args.toList
+  return .call pos name args.toList
+
+partial def parse_true : Parser Expr := do
+  let pos ← pos
+  atom "true"
+  return (.bool pos .true)
+
+partial def parse_false : Parser Expr := do
+  let pos ← pos
+  atom "false"
+  return (.bool pos .false)
 
 partial def parse_expr_inner : Parser Expr := do
-  attempt (Expr.num <$> parse_num_val)
+  attempt (pos >>= fun pos => Expr.num pos <$> parse_num_val)
   <|> attempt parse_let_in <|> attempt parse_ite
   <|> attempt (pchar '(' *> ws *> pe <* ws <* pchar ')' <* ws)
-  <|> attempt (atom "true" *> pure (.bool .true))
-  <|> attempt (atom "false" *> pure (.bool .false))
+  <|> attempt parse_true
+  <|> attempt parse_false
   <|> attempt parse_function_call
-  <|> attempt (Expr.id <$> parse_ident)
+  <|> attempt (pos >>= fun pos => Expr.id pos <$> parse_ident)
 
 partial def parse_neg : Parser Expr := do
-  attempt (atom "-" *> Expr.prim1 .neg <$> parse_neg) <|> parse_expr_inner
+  attempt (do
+    let pos ← pos
+    atom "-"
+    Expr.prim1 pos .neg <$> parse_neg
+    ) <|> parse_expr_inner
 
 partial def parse_not : Parser Expr := do
-  attempt (atom "!" *> Expr.prim1 .not <$> parse_not) <|> parse_neg
+  attempt (do
+    let pos ← pos
+    atom "!"
+    Expr.prim1 pos .not <$> parse_not
+    ) <|> parse_neg
 
 partial def parse_mul : Parser Expr := parse_infixl [("*", .times)] parse_not
 
@@ -132,11 +192,18 @@ def parse_function_decl : Parser Decl := do
   atom ")"
   atom ":"
   let body ← parse_expr
-  return Decl.mk name ids.toList body
+  return Decl.function <| FuncDef.mk name ids.toList body
 
-def parse_prog : Parser Program := do
+def parse_prog : Parser (Program String.Pos) := do
   let decls ← many parse_function_decl
   let body ← parse_expr
   return .mk decls body
 
 end
+
+def run_parse_prog (input : String) : Except String (Program Location) := do
+  let map := FileMap.mk input
+  let expr ← parse_prog.run input
+  let some result := expr.mapM (fun x => map.lookup x)
+    | throw "impossible: FileMap is not correct"
+  return result

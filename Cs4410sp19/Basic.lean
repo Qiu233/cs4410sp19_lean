@@ -93,123 +93,136 @@ inductive Prim2 where
   | land | lor | lt | le | gt | ge | eq | ne
 deriving Inhabited, Repr
 
-inductive Expr where
-  | num : Int → Expr
-  | id : String → Expr
-  | let_in : String → Expr → Expr → Expr
-  | prim1 : Prim1 → Expr → Expr
-  | prim2 : Prim2 → Expr → Expr → Expr
-  | ite : Expr → Expr → Expr → Expr
-  | bool : Bool → Expr
-  | call : String → List Expr → Expr
+inductive Expr (α : Type) where
+  | num : α → Int → Expr α
+  | id : α → String → Expr α
+  | let_in : α → String → Expr α → Expr α → Expr α
+  | prim1 : α → Prim1 → Expr α → Expr α
+  | prim2 : α → Prim2 → Expr α → Expr α → Expr α
+  | ite : α → Expr α → Expr α → Expr α → Expr α
+  | bool : α → Bool → Expr α
+  | call : α → String → List (Expr α) → Expr α
 deriving Inhabited, Repr
 
-structure Decl where
+def Expr.tag : Expr α → α
+  | num x ..
+  | id x ..
+  | let_in x ..
+  | prim1 x ..
+  | prim2 x ..
+  | ite x ..
+  | bool x ..
+  | call x .. => x
+
+partial def Expr.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Expr α → m (Expr β) := fun e =>
+  match e with
+  | num tag x => return num (← f tag) x
+  | bool tag x => return bool (← f tag) x
+  | id tag name => return id (← f tag) name
+  | let_in tag name value kont =>
+    return let_in (← f tag) name (← Expr.mapM f value) (← Expr.mapM f kont)
+  | prim1 tag op x =>
+    return prim1 (← f tag) op (← Expr.mapM f x)
+  | prim2 tag op x y =>
+    return prim2 (← f tag) op (← Expr.mapM f x) (← Expr.mapM f y)
+  | ite tag cond bp bn =>
+    return ite (← f tag) (← Expr.mapM f cond) (← Expr.mapM f bp) (← Expr.mapM f bn)
+  | call tag name xs =>
+    return call (← f tag) name (← xs.mapM (fun x => Expr.mapM f x))
+
+def Expr.unsetTag : Expr α → Expr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
+structure FuncDef where
   name : String
   params : List String
-  body : Expr
+  body : Expr String.Pos
 
-structure Program where
+inductive Decl where
+  | function : FuncDef → Decl
+
+def Decl.name : Decl → String
+  | .function f => f.name
+
+structure Program (α : Type) where
   decls : Array Decl
-  exe_code : Expr
+  exe_code : Expr α
 
-inductive Expr.IsImm : Expr → Prop where
-  | num x : IsImm (.num x)
-  | id name : IsImm (.id name)
-  | bool x : IsImm (.bool x)
+def Program.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Program α → m (Program β) := fun p => do
+  let r ← p.exe_code.mapM f
+  return Program.mk p.decls r
 
-attribute [simp] Expr.IsImm.num Expr.IsImm.id Expr.IsImm.bool
+def Program.unsetTag : Program α → Program Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
-inductive Expr.IsANF : Expr → Prop where
-  | of_imm {e} : Expr.IsImm e → e.IsANF
-  | prim1 {op : Prim1} {x : Expr} : x.IsImm → (Expr.prim1 op x).IsANF
-  | prim2 {op : Prim2} {x y : Expr} : x.IsImm → y.IsImm → (Expr.prim2 op x y).IsANF
-  | let_in {name} {v k : Expr} : v.IsANF → k.IsANF → (Expr.let_in name v k).IsANF
-  | ite {cond bp bn : Expr} : cond.IsImm → bp.IsANF → bn.IsANF → (Expr.ite cond bp bn).IsANF
-  | call {name args} : (∀ arg ∈ args, arg.IsImm) → (Expr.call name args).IsANF
-
-instance Expr.IsImm.dec : DecidablePred Expr.IsImm := fun x => by
-  cases x with
-  | num _
-  | id _
-  | bool _ =>
-    apply Decidable.isTrue; simp
-  | _ =>
-    apply Decidable.isFalse
-    intro hn
-    cases hn
-
-local macro "neg!" : tactic => `(tactic| focus
-  apply Decidable.isFalse
-  intro hn
-  cases hn
-  contradiction
-  contradiction)
-
-instance Expr.IsANF.dec : DecidablePred Expr.IsANF := fun x => by
-  if h : x.IsImm then
-    apply Decidable.isTrue
-    apply Expr.IsANF.of_imm h
-  else
-    cases x with
-    | prim1 op x =>
-      if h' : x.IsImm then
-        apply Decidable.isTrue
-        apply Expr.IsANF.prim1 h'
-      else neg!
-    | prim2 op x y =>
-      if h1 : x.IsImm then
-        if h2 : y.IsImm then
-          apply Decidable.isTrue
-          apply Expr.IsANF.prim2 h1 h2
-        else neg!
-      else neg!
-    | let_in var value kont =>
-      match Expr.IsANF.dec value, Expr.IsANF.dec kont with
-      | .isFalse h1, _ => neg!
-      | .isTrue h1, .isFalse _ => neg!
-      | .isTrue h1, .isTrue h2 =>
-        apply Decidable.isTrue
-        apply Expr.IsANF.let_in h1 h2
-    | ite cond bp bn =>
-      match Expr.IsImm.dec cond, Expr.IsANF.dec bp, Expr.IsANF.dec bn with
-      | .isFalse h1, _, _ => neg!
-      | .isTrue h1, .isFalse h2, _ => neg!
-      | .isTrue h1, .isTrue h2, .isFalse _ => neg!
-      | .isTrue h1, .isTrue h2, .isTrue h3 =>
-        apply Decidable.isTrue
-        apply Expr.IsANF.ite h1 h2 h3
-    | call name args =>
-      have : Decidable (∀ x ∈ args, x.IsImm) := inferInstance
-      cases this with
-      | isFalse h' => neg!
-      | isTrue h' =>
-        apply Decidable.isTrue
-        apply Expr.IsANF.call h'
-    | _ =>
-      apply Decidable.isFalse
-      intro hn
-      cases hn <;> contradiction
-
-inductive ImmExpr where
-  | num : Int → ImmExpr
-  | bool : Bool → ImmExpr
-  | id : String → ImmExpr
+inductive ImmExpr (α : Type) where
+  | num   : α → Int → ImmExpr α
+  | bool  : α → Bool → ImmExpr α
+  | id    : α → String → ImmExpr α
 deriving Inhabited, Repr
+
+def ImmExpr.tag : ImmExpr α → α
+  | .num x ..
+  | .bool x ..
+  | .id x .. => x
+
+partial def ImmExpr.mapM {α β} {m : Type → Type} [Monad m] (f : α → m β) : ImmExpr α → m (ImmExpr β)
+  | num tag x => return num (← f tag) x
+  | bool tag x => return bool (← f tag) x
+  | id tag name => return id (← f tag) name
+
+def ImmExpr.unsetTag : ImmExpr α → ImmExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
 mutual
 
-inductive CExpr where
-  | prim1 : Prim1 → ImmExpr → CExpr
-  | prim2 : Prim2 → ImmExpr → ImmExpr → CExpr
-  | ite : ImmExpr → AExpr → AExpr → CExpr
-  | call : String → List ImmExpr → CExpr
-  | imm : ImmExpr → CExpr
+inductive CExpr (α : Type) where
+  | prim1 : α → Prim1 → ImmExpr α → CExpr α
+  | prim2 : α → Prim2 → ImmExpr α → ImmExpr α → CExpr α
+  | ite   : α → ImmExpr α → AExpr α → AExpr α → CExpr α
+  | call  : α → String → List (ImmExpr α) → CExpr α
+  | imm   : ImmExpr α → CExpr α
 deriving Inhabited, Repr
 
-inductive AExpr where
-  | let_in : String → CExpr → AExpr → AExpr
-  | cexpr : CExpr → AExpr
+inductive AExpr (α : Type) where
+  | let_in : α → String → CExpr α → AExpr α → AExpr α
+  | cexpr : CExpr α → AExpr α
 deriving Inhabited, Repr
 
 end
+
+def CExpr.tag : CExpr α → α
+  | .prim1 x ..
+  | .prim2 x ..
+  | .ite x ..
+  | .call x .. => x
+  | .imm x => x.tag
+
+def AExpr.tag : AExpr α → α
+  | .let_in x .. => x
+  | .cexpr x => x.tag
+
+mutual
+
+partial def CExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f : α → m β) : CExpr α → m (CExpr β) := fun e => do
+  match e with
+  | .imm x => return .imm (← x.mapM f)
+  | .prim1 tag op x =>
+    return .prim1 (← f tag) op (← x.mapM f)
+  | .prim2 tag op x y =>
+    return .prim2 (← f tag) op (← x.mapM f) (← y.mapM f)
+  | .ite tag cond bp bn =>
+    return .ite (← f tag) (← cond.mapM f) (← bp.mapM f) (← bn.mapM f)
+  | .call tag name xs =>
+    return .call (← f tag) name (← xs.mapM (fun x => x.mapM f))
+
+partial def AExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f : α → m β) : AExpr α → m (AExpr β) := go
+where
+  go e := do
+    match e with
+    | .let_in tag name value kont =>
+      return .let_in (← f tag) name (← value.mapM f) (← go kont)
+    | .cexpr c => return .cexpr <| ← c.mapM f
+
+end
+
+def CExpr.unsetTag : CExpr α → CExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
+def AExpr.unsetTag : AExpr α → AExpr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
