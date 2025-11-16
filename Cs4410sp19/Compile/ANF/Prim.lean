@@ -193,7 +193,8 @@ partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array
     let lhs ← x.arg
     let rhs ← y.arg
     let label_eq ← gen_label "equal"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
+    return #[
+      .mov eax lhs,
       .cmp eax rhs,
       .mov eax const_true,
       .je label_eq,
@@ -203,7 +204,8 @@ partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array
     let lhs ← x.arg
     let rhs ← y.arg
     let label_ne ← gen_label "not_equal"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
+    return #[
+      .mov eax lhs,
       .cmp eax rhs,
       .mov eax const_false,
       .je label_ne,
