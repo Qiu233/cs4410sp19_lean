@@ -1,4 +1,23 @@
-def add(x : Int, y : Int) -> Int:
-  x + y
+def is_even(x):
+  if x == 0:
+    true
+  else:
+    if x == 1:
+      false
+    else:
+      is_odd(x - 1)
+and is_odd(x):
+  if x == 1:
+    true
+  else:
+    if x == 0:
+      false
+    else:
+      is_even(x - 1)
 
-add(3, 5) : Int
+def f(x: 'a) -> 'b: g(x)
+and g(x: 'a) -> 'b: f(x)
+
+def h(x: 'a) -> 'b: (x : 'b)
+
+is_even(4)

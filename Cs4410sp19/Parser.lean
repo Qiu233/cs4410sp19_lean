@@ -92,11 +92,20 @@ private def sepBy1 (sep : Parser Unit) (x : Parser α) (allow_ws : Bool := true)
 
 def parse_ident : Parser String := parse_ident_no_ws <* ws
 
-def parse_type_atomic : Parser (Typ String.Pos) := do
+def parse_type_var : Parser (Typ String.Pos) := do
+  let pos ← pos
+  _ ← pchar '\''
+  let name ← parse_ident
+  ws
+  return Typ.var pos name
+
+def parse_type_const : Parser (Typ String.Pos) := do
   let pos ← pos
   let x ← pstring "Int" <|> pstring "Bool"
   ws
   return Typ.const pos x
+
+def parse_type_atomic : Parser (Typ String.Pos) := attempt parse_type_var <|> parse_type_const
 
 def parse_type : Parser (Typ String.Pos) := do
   parse_type_atomic
@@ -109,15 +118,16 @@ partial def parse_let_in : Parser Expr := do
   atom "let"
   let name ← parse_ident
   ws
-  atom ":"
-  let type ← parse_type
+  let type? ← optional <| attempt do
+    atom ":"
+    parse_type
   atom "="
   let value ← pe
   ws
   atom "in"
   let body ← pe
   ws
-  return .let_in (pos, none) name (type.mapM (m := Id) fun x => (x, none)) value body
+  return .let_in (pos, none) name (type?.mapM fun t => t.mapM (m := Id) fun x => (x, none)) value body
 
 partial def parse_ite : Parser Expr := do
   let pos ← pos
@@ -206,28 +216,36 @@ partial def parse_expr : Parser Expr := do
   ws
   parse_expr_outer parse_expr
 
-def parse_param : Parser (String × Typ String.Pos) := do
+def parse_param : Parser (String × Option (Typ String.Pos)) := do
   let name ← parse_ident
-  atom ":"
-  let type ← parse_type
-  return (name, type)
+  let type? ← optional <| attempt do
+    atom ":"
+    parse_type
+  return (name, type?)
 
-def parse_function_params : Parser (Array (String × Typ String.Pos)) := sepBy (atom ",") parse_param true
+def parse_function_params : Parser (Array (String × Option (Typ String.Pos))) := sepBy (atom ",") parse_param true
 
-def parse_function_decl : Parser (Decl (String.Pos × Option (Typ String.Pos))) := do
+def parse_function_decl_sig : Parser (Decl (String.Pos × Option (Typ String.Pos))) := do
   let pos ← pos
-  atom "def"
   let name ← parse_ident
   atom "("
   let args ← parse_function_params
   atom ")"
-  atom "->"
-  let ret_type ← parse_type
+  let ret_type? ← optional <| attempt do
+    atom "->"
+    parse_type
   atom ":"
   let body ← parse_expr
-  let args := args.map fun (x, y) => (x, y.mapM (m := Id) fun p => (p, none))
-  let ret_type := ret_type.mapM (m := Id) fun p => (p, none)
+  let args := args.map fun (x, y) => (x, y.mapM (m := Id) fun p => p.mapM fun q => (q, none))
+  let ret_type := ret_type?.mapM fun r => r.mapM (m := Id) fun p => (p, none)
   return Decl.function (pos, none) <| FuncDef.mk name body args.toList ret_type
+
+def parse_function_decl : Parser (MutualDecl (String.Pos × Option (Typ String.Pos))) := do
+  let pos ← pos
+  atom "def"
+  let head ← parse_function_decl_sig
+  let trailing ← many (atom "and" *> parse_function_decl_sig)
+  return MutualDecl.mk (pos, none) (head :: trailing.toList)
 
 def parse_prog : Parser (Program (String.Pos × Option (Typ String.Pos))) := do
   let pos ← pos

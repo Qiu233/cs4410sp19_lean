@@ -96,8 +96,8 @@ deriving Inhabited, Repr
 inductive Typ (α : Type) where
   | var : α → String → Typ α
   | const : α → String → Typ α
-  | arrow : Array (Typ α) → Typ α → Typ α
-  | app : Typ α → Array (Typ α) → Typ α
+  | arrow : List (Typ α) → Typ α → Typ α
+  | app : Typ α → List (Typ α) → Typ α
 deriving Inhabited, Repr
 
 partial def Typ.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Typ α → m (Typ β)
@@ -108,10 +108,17 @@ partial def Typ.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : �
 
 def Typ.unsetTag : Typ α → Typ Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
+structure TypeScheme where
+  params : List String
+  body : Typ Unit
+deriving Inhabited, Repr
+
+def TypeScheme.arity : TypeScheme → Nat := fun s => s.params.length
+
 inductive Expr (α : Type) where
   | num : α → Int → Expr α
   | id : α → String → Expr α
-  | let_in : α → String → Typ α → Expr α → Expr α → Expr α
+  | let_in : α → String → Option (Typ α) → Expr α → Expr α → Expr α
   | prim1 : α → Prim1 → Expr α → Expr α
   | prim2 : α → Prim2 → Expr α → Expr α → Expr α
   | ite : α → Expr α → Expr α → Expr α → Expr α
@@ -135,7 +142,7 @@ partial def Expr.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : 
   | bool tag x => return bool (← f tag) x
   | id tag name => return id (← f tag) name
   | let_in tag name type value kont =>
-    return let_in (← f tag) name (← type.mapM f) (← Expr.mapM f value) (← Expr.mapM f kont)
+    return let_in (← f tag) name (← type.mapM fun x => x.mapM f) (← Expr.mapM f value) (← Expr.mapM f kont)
   | prim1 tag op x =>
     return prim1 (← f tag) op (← Expr.mapM f x)
   | prim2 tag op x y =>
@@ -160,14 +167,14 @@ def Expr.setTag : Expr α → α → Expr α
 structure FuncDef α where
   name : String
   body : Expr α
-  params : List (String × Typ α)
-  ret_type : Typ α
+  params : List (String × Option (Typ α))
+  ret_type? : Option (Typ α)
 
-def FuncDef.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : FuncDef α → m (FuncDef β) := fun ⟨name, body, params, ret_type⟩ => do
+def FuncDef.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : FuncDef α → m (FuncDef β) := fun ⟨name, body, params, ret_type?⟩ => do
   let body' ← body.mapM f
-  let params' ← params.mapM fun (x, y) => (x, ·) <$> y.mapM f
-  let ret_type' ← ret_type.mapM f
-  return ⟨name, body', params', ret_type'⟩
+  let params' ← params.mapM fun (x, y) => (x, ·) <$> y.mapM fun t => t.mapM f
+  let ret_type?' ← ret_type?.mapM fun x => x.mapM f
+  return ⟨name, body', params', ret_type?'⟩
 
 def FuncDef.unsetTag : FuncDef α → FuncDef Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
@@ -182,9 +189,20 @@ def Decl.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m
 
 def Decl.unsetTag : Decl α → Decl Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
+structure MutualDecl α where
+  tag : α
+  decls : List (Decl α)
+
+def MutualDecl.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : MutualDecl α → m (MutualDecl β) := fun p => do
+  let tag' ← f p.tag
+  let decls' ← (p.decls.mapM fun x => x.mapM f)
+  return MutualDecl.mk tag' decls'
+
+def MutualDecl.unsetTag : MutualDecl α → MutualDecl Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
 structure Program (α : Type) where
   tag : α
-  decls : Array (Decl α)
+  decls : Array (MutualDecl α)
   exe_code : Expr α
 
 def Program.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Program α → m (Program β) := fun p => do

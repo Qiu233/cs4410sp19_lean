@@ -24,18 +24,9 @@ export MonadNameGen (gensym)
 
 section
 
--- structure FunctionDefVal where
---   params : Array (String × Typ Unit)
---   ret : Typ Unit
---   body : Expr Unit
-
--- inductive Constant where
---   | function (name : String) (type : Typ Unit) (def' : FunctionDefVal)
-
 structure Env where
   names : Std.HashMap String Nat := {}
-  -- global_consts : Std.HashMap String Constant := {}
-  function_names : Array String := #[]
+  functions : Std.HashSet String := {}
 
 abbrev CompileM := ExceptT String (StateM Env)
 

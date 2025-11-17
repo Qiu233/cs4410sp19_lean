@@ -1,0 +1,21 @@
+def id(x):
+  x
+
+def fact(n: Int) -> Int:
+  if n == 0: 1 else: n * fact(n - 1)
+
+def fib(n: Int) -> Int:
+  if n <= 1: n else: fib(n - 1) + fib(n - 2)
+
+def use_id_int(a: Int) -> Int:
+  id(a)
+
+def use_id_bool(b: Bool) -> Bool:
+  id(b)
+
+def f(x : 'a, y):
+  y
+
+let ans: Int = (let tmp: Int = use_id_int(fact(5)) in tmp + 2) in
+let cond: Bool = use_id_bool(true || (3 < 4)) in
+if cond: ans else: fib(6)

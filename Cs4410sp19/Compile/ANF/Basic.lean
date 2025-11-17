@@ -117,9 +117,20 @@ def ADecl.setTag : ADecl α → α → ADecl α
 def ADecl.name : ADecl α → String
   | .function _ f => f.name
 
+structure AMutualDecl α where
+  tag : α
+  decls : List (ADecl α)
+
+def AMutualDecl.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : AMutualDecl α → m (AMutualDecl β) := fun p => do
+  let tag' ← f p.tag
+  let decls' ← (p.decls.mapM fun x => x.mapM f)
+  return AMutualDecl.mk tag' decls'
+
+def AMutualDecl.unsetTag : AMutualDecl α → AMutualDecl Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
 structure AProgram (α : Type) where
   tag : α
-  decls : Array (ADecl α)
+  decls : Array (AMutualDecl α)
   exe_code : AExpr α
 
 def AProgram.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : AProgram α → m (AProgram β) := fun p => do

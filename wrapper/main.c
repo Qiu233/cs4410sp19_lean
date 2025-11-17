@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 const int BOOL_TAG   = 0x00000001;
 const int BOOL_TRUE  = 0x80000001; // These must be the same values

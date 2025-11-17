@@ -219,7 +219,7 @@ partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array
     let ns ← compile_aexpr bn tail_pos
     return #[ .mov eax c, .cmp eax const_false, .je label_else ] ++ ps ++ #[ .jmp label_done, .label label_else ] ++ ns ++ #[ .label label_done ]
   | .call _ name args =>
-    let avai ← Env.function_names <$> getThe Env
+    let avai ← Env.functions <$> getThe Env
     unless avai.contains name do
       throw s!"function \"{name}\" is undefined"
     add_used_constants name
@@ -256,8 +256,11 @@ def anf_decl : Decl α → m (ADecl Unit)
   | .function _ d => do
     .function () <$> anf_function_def d
 
+def anf_mutual_decl : MutualDecl α → m (AMutualDecl Unit) := fun x => do
+  AMutualDecl.mk () <$> (x.decls.mapM anf_decl)
+
 def anf_prog : Program α → m (AProgram Unit) := fun ⟨_, decls, e⟩ => do
-  let decls' ← decls.mapM anf_decl
+  let decls' ← decls.mapM anf_mutual_decl
   let e' ← anf e
   return ⟨(), decls', e'⟩
 
@@ -271,12 +274,12 @@ def func_epilog : Array Instruction :=
 
 def compile_anfed_function_def (e : AFuncDef α) : CompileM (Array Instruction) := do
   let ⟨name, ids, body⟩ := e
-  let env ← get
-  if env.function_names.contains name then
-    throw s!"function \"{name}\" already exists"
+  -- let env ← get
+  -- if env.functions.contains name then
+  --   throw s!"function \"{name}\" already exists"
   if ids.eraseDups.length != ids.length then
     throw s!"arguments {ids} contain duplicates"
-  let _ ← modifyGet fun env => (let function_names := env.function_names.push name; (function_names, {env with function_names}))
+  -- modify fun env => (let functions := env.functions.insert name; {env with functions})
   let do_compile := with_args ids.toArray fun _ => compile_aexpr body true
   let label_body ← gen_label s!"{name.replace "-" "_"}_body"
   let (result, s) ← do_compile.run { current_decl? := (name, label_body) } {}
@@ -291,10 +294,20 @@ def compile_anfed_decl (e : ADecl α) : CompileM (Array Instruction) := do
   match e with
   | .function _ f => compile_anfed_function_def f
 
+def compile_anfed_mutual_decl (e : AMutualDecl α) : CompileM (Array (String × (Array Instruction))) := do
+  let mut data := #[]
+  for d in e.decls do
+    modify fun env => {env with functions := env.functions.insert d.name}
+  for d in e.decls do
+    let code ← compile_anfed_decl d
+    data := data.push (d.name.replace "-" "_", code)
+  return data
+
 def compile_anfed_prog_core (e : AProgram α) : CompileM (Array (String × (Array Instruction)) × (Array Instruction)) := do
   let mut store := #[]
   for d in e.decls do
-    store := store.push <| (d.name.replace "-" "_", ← compile_anfed_decl d)
+    let code ← compile_anfed_mutual_decl d
+    store := store.append code
   let (result, s) ← compile_aexpr e.exe_code true |>.run { current_decl? := none } {}
   let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
   return (store, result)
