@@ -2,6 +2,7 @@ import Cs4410sp19.Basic
 import Cs4410sp19.Parser
 import Cs4410sp19.Compile.Basic
 import Cs4410sp19.Compile.ANF
+import Cs4410sp19.Compile.Tych
 
 namespace Cs4410sp19
 
@@ -25,9 +26,10 @@ def externs : List String := ["error", "print"]
 
 def helpers : List String := [error_non_number, error_non_bool]
 
-def compile_prog (prog : Program α) : Except String String := do
+def compile_prog (prog : Program (Location × Option (Typ String.Pos))) : Except String String := do
   let init_env : Env := { function_names := #["print"] }
   let (decls, exe) ← (do
+    Tych.type_check_prog prog
     let prog' ← anf_prog prog
     compile_anfed_prog_core prog') |>.run' init_env
   let ds := decls.map fun (d, is) =>

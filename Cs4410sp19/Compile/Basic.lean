@@ -24,8 +24,17 @@ export MonadNameGen (gensym)
 
 section
 
+-- structure FunctionDefVal where
+--   params : Array (String × Typ Unit)
+--   ret : Typ Unit
+--   body : Expr Unit
+
+-- inductive Constant where
+--   | function (name : String) (type : Typ Unit) (def' : FunctionDefVal)
+
 structure Env where
   names : Std.HashMap String Nat := {}
+  -- global_consts : Std.HashMap String Constant := {}
   function_names : Array String := #[]
 
 abbrev CompileM := ExceptT String (StateM Env)
@@ -43,6 +52,16 @@ instance : MonadNameGen CompileM := ⟨CompileM.gensym⟩
 
 def gen_label [MonadNameGen m] (suggestedName : String) : m String :=
   gensym s!"label_{suggestedName}"
+
+-- def find_global_constant? : String → CompileM (Option Constant) := fun s => do
+--   let cs ← Env.global_consts <$> getThe Env
+--   return cs.get? s
+
+-- def register_global_constant : String → Constant → CompileM Unit := fun s c => do
+--   let cs ← Env.global_consts <$> getThe Env
+--   if cs.contains s then
+--     throw s!"cannot register constant {s} because it already exists"
+--   modify (fun x => { x with global_consts := x.global_consts.insert s c })
 
 end
 

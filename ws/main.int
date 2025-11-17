@@ -1,9 +1,4 @@
-def fact_v1(n):
-  if n <= 1: 1
-  else: n * fact_v1(n - 1)
+def add(x : Int, y : Int) -> Int:
+  x + y
 
-def fact-tail(n, acc):
-  if n <= 1: acc
-  else: fact-tail(n - 1, n * acc)
-
-fact-tail(5, 1)
+add(3, 5) : Int

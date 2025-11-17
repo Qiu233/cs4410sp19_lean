@@ -33,7 +33,7 @@ where
       let (rhs', rs) ← helpI rhs
       let name_res ← gensym "result"
       return (ImmExpr.id () name_res, ls ++ rs ++ #[(name_res, CExpr.prim2 () op lhs' rhs')])
-    | .let_in _ name value kont =>
+    | .let_in _ name _ value kont =>
       let (value', cs) ← helpC value
       let (kont', ks) ← helpC kont
       let name_res ← gensym "result"
@@ -68,7 +68,7 @@ where
       let (lhs', ls) ← helpI lhs
       let (rhs', rs) ← helpI rhs
       return (CExpr.prim2 () op lhs' rhs', ls ++ rs)
-    | .let_in _ name value kont =>
+    | .let_in _ name  _ value kont =>
       let (value', cs) ← helpC value
       let (kont', ks) ← helpC kont
       return (kont', cs ++ #[(name, value')] ++ ks)
@@ -248,8 +248,9 @@ end
 variable [Monad m] [MonadNameGen m]
 in section
 
-def anf_function_def : FuncDef α → m (AFuncDef Unit) := fun ⟨name, params, body⟩ => do
-  return ⟨name, params, ← anf body⟩
+def anf_function_def : FuncDef α → m (AFuncDef Unit) := fun ⟨name, body, params, _⟩ => do
+  let params' := params.map Prod.fst
+  return ⟨name, params', ← anf body⟩
 
 def anf_decl : Decl α → m (ADecl Unit)
   | .function _ d => do
