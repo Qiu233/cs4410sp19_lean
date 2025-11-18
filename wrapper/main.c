@@ -12,6 +12,20 @@ int print(int val) {
     printf("true");
   } else if (val == BOOL_FALSE) {
     printf("false");
+  } else if ((val & 0x00000007) == 0x00000001) {
+    int *ptr = (int*)(((void*)val) - 1);
+    int n = ptr[0];
+    if (n == 0) {
+      printf("()");
+    } else {
+      printf("(");
+      print(ptr[1]);
+      for (int i = 1; i < n; i++) {
+        printf(", ");
+        print(ptr[i + 1]);
+      }
+      printf(")");
+    }
   } else {
     printf("Unknown value: %#010x", val); // print unknown val in hex
   }
@@ -20,6 +34,7 @@ int print(int val) {
 
 const int ERR_NOT_NUMBER = 1;
 const int ERR_NOT_BOOLEAN = 2;
+const int ERR_NOT_TUPLE = 3;
 // other error codes here
 
 void error(int errCode, int val) {
@@ -27,14 +42,23 @@ void error(int errCode, int val) {
     fprintf(stderr, "Expected number, but got %010x\n", val);
   } else if (errCode == ERR_NOT_BOOLEAN) {
     fprintf(stderr, "Expected boolean, but got %010x\n", val);
+  } else if (errCode == ERR_NOT_TUPLE) {
+    fprintf(stderr, "Expected tuple, but got %010x\n", val);
   }
   exit(errCode);
 }
 
+void error_tuple_size_mismatch(int expected, int actual) {
+  fprintf(stderr, "Tuple size mismatched, expected %d, but got %d\n", expected, actual);
+  exit(-1);
+}
+
 extern int our_code_starts_here() asm("our_code_starts_here");
 
-int main(int argc, char** argv) {
-  int result = our_code_starts_here();
+int main() {
+  int* HEAP = calloc(1024, sizeof(int)); // Allocate 4KB of memory for now
+  int result = our_code_starts_here(HEAP);
   print(result);
+  free(HEAP);
   return 0;
 }

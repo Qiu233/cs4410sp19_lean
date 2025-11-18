@@ -1,23 +1,8 @@
-def is_even(x):
-  if x == 0:
-    true
-  else:
-    if x == 1:
-      false
-    else:
-      is_odd(x - 1)
-and is_odd(x):
-  if x == 1:
-    true
-  else:
-    if x == 0:
-      false
-    else:
-      is_even(x - 1)
+def prod(a, b):
+  (a, b, (b, a))
 
-def f(x: 'a) -> 'b: g(x)
-and g(x: 'a) -> 'b: f(x)
+def f() -> ():
+  let x = print(1) in
+  ()
 
-def h(x: 'a) -> 'b: (x : 'b)
-
-is_even(4)
+prod(1, true)[2 of 3][1 of 2]

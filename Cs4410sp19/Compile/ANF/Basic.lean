@@ -33,6 +33,8 @@ inductive CExpr (α : Type) where
   | prim2 : α → Prim2 → ImmExpr α → ImmExpr α → CExpr α
   | ite   : α → ImmExpr α → AExpr α → AExpr α → CExpr α
   | call  : α → String → List (ImmExpr α) → CExpr α
+  | tuple  : α → List (ImmExpr α) → CExpr α
+  | get_item : α → ImmExpr α → Nat → Nat → CExpr α
   | imm   : ImmExpr α → CExpr α
 deriving Inhabited, Repr
 
@@ -47,7 +49,9 @@ def CExpr.tag : CExpr α → α
   | .prim1 x ..
   | .prim2 x ..
   | .ite x ..
-  | .call x .. => x
+  | .call x ..
+  | .tuple x ..
+  | .get_item x .. => x
   | .imm x => x.tag
 
 def CExpr.setTag : CExpr α → α → CExpr α
@@ -55,6 +59,8 @@ def CExpr.setTag : CExpr α → α → CExpr α
   | prim2 _ op x y, tag => .prim2 tag op x y
   | ite _ cond bp bn, tag => .ite tag cond bp bn
   | call _ name xs, tag => .call tag name xs
+  | tuple _ xs, tag => .tuple tag xs
+  | get_item _ e i n, tag => .get_item tag e i n
   | imm x, tag => .imm (x.setTag tag)
 
 def AExpr.tag : AExpr α → α
@@ -78,6 +84,10 @@ partial def CExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f :
     return .ite (← f tag) (← cond.mapM f) (← bp.mapM f) (← bn.mapM f)
   | .call tag name xs =>
     return .call (← f tag) name (← xs.mapM (fun x => x.mapM f))
+  | .tuple tag xs =>
+    return .tuple (← f tag) (← xs.mapM (fun x => x.mapM f))
+  | .get_item tag e i n =>
+    return .get_item (← f tag) (← e.mapM f) i n
 
 partial def AExpr.mapM {α β} [Inhabited β] {m : Type → Type} [Monad m] (f : α → m β) : AExpr α → m (AExpr β) := go
 where

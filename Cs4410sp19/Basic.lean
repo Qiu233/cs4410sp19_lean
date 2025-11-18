@@ -5,6 +5,7 @@ inductive Reg where
   | eax
   | esp
   | ebp
+  | esi
 deriving Inhabited
 
 inductive Arg where
@@ -46,6 +47,7 @@ instance : ToString Reg where
   | .eax => "eax"
   | .esp => "esp"
   | .ebp => "ebp"
+  | .esi => "esi"
 
 instance : ToString Arg where
   toString
@@ -86,6 +88,7 @@ def asm_to_string : Array Instruction → String := fun xs =>
 
 inductive Prim1 where
   | neg | not
+  | fst | snd
 deriving Inhabited, Repr
 
 inductive Prim2 where
@@ -98,6 +101,7 @@ inductive Typ (α : Type) where
   | const : α → String → Typ α
   | arrow : List (Typ α) → Typ α → Typ α
   | app : Typ α → List (Typ α) → Typ α
+  | tuple : α → List (Typ α) → Typ α
 deriving Inhabited, Repr
 
 partial def Typ.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Typ α → m (Typ β)
@@ -105,7 +109,7 @@ partial def Typ.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : �
   | const tag x => return const (← f tag) x
   | arrow args result => return arrow (← args.mapM (Typ.mapM f)) (← Typ.mapM f result)
   | app ctor args => return app (← Typ.mapM f ctor) (← args.mapM (Typ.mapM f))
-
+  | tuple tag xs => return tuple (← f tag) (← xs.mapM (Typ.mapM f))
 def Typ.unsetTag : Typ α → Typ Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
 structure TypeScheme where
@@ -124,6 +128,8 @@ inductive Expr (α : Type) where
   | ite : α → Expr α → Expr α → Expr α → Expr α
   | bool : α → Bool → Expr α
   | call : α → String → List (Expr α) → Expr α
+  | tuple : α → List (Expr α) → Expr α
+  | get_item : α → Expr α → Nat → Nat → Expr α
 deriving Inhabited, Repr
 
 def Expr.tag : Expr α → α
@@ -134,6 +140,8 @@ def Expr.tag : Expr α → α
   | prim2 x ..
   | ite x ..
   | bool x ..
+  | tuple x ..
+  | get_item x ..
   | call x .. => x
 
 partial def Expr.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Expr α → m (Expr β) := fun e =>
@@ -151,6 +159,10 @@ partial def Expr.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : 
     return ite (← f tag) (← Expr.mapM f cond) (← Expr.mapM f bp) (← Expr.mapM f bn)
   | call tag name xs =>
     return call (← f tag) name (← xs.mapM (fun x => Expr.mapM f x))
+  | tuple tag xs =>
+    return tuple (← f tag) (← xs.mapM (Expr.mapM f))
+  | get_item tag x i n =>
+    return get_item (← f tag) (← Expr.mapM f x) i n
 
 def Expr.unsetTag : Expr α → Expr Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
 
@@ -163,6 +175,8 @@ def Expr.setTag : Expr α → α → Expr α
   | .prim2 _ op x y, tag => .prim2 tag op x y
   | .ite _ cond bp bn, tag => .ite tag cond bp bn
   | .call _ name xs, tag => .call tag name xs
+  | .tuple _ xs, tag => .tuple tag xs
+  | .get_item _ x i n, tag => .get_item tag x i n
 
 structure FuncDef α where
   name : String

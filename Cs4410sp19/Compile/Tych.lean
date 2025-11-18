@@ -12,6 +12,7 @@ partial local instance : ToString (Typ α) where
     | .arrow [arg] ret => s!"{go arg} -> {go ret}"
     | .arrow args ret => s!"({String.intercalate ", " (List.map go args)}) -> {go ret}"
     | .app ctor args => s!"{go ctor}<{String.intercalate ", " (List.map go args)}>"
+    | .tuple _ xs => s!"({String.intercalate " * " (xs.map go)})"
     go x
 
 local instance : ToString TypeScheme where
@@ -27,6 +28,8 @@ def subst_type (in_type : Typ Unit) (name : String) (type : Typ Unit) : Typ Unit
       Typ.arrow (argTypes.map go) (go retType)
     | Typ.app ctor argTypes =>
       Typ.app (go ctor) (argTypes.map go)
+    | Typ.tuple _ xs =>
+      Typ.tuple () (xs.map go)
 
 def subst_type_scheme (in_type : TypeScheme) (name : String) (type : Typ Unit) : TypeScheme :=
   if in_type.params.contains name then
@@ -78,6 +81,7 @@ private partial def type_eqv : Typ α → Typ β → Bool
   | Typ.const _ x, Typ.const _ y => x == y
   | Typ.arrow args_x ret_x, Typ.arrow args_y ret_y => args_x.length == args_y.length && type_eqv ret_x ret_y && List.all (args_x.zipWith (ys := args_y) type_eqv) id
   | Typ.app ctor_x args_x, Typ.app ctor_y args_y => args_x.length == args_y.length && type_eqv ctor_x ctor_y && List.all (args_x.zipWith (ys := args_y) type_eqv) id
+  | Typ.tuple _ xs, Typ.tuple _ ys => xs.length == ys.length && List.all (xs.zipWith (fun x y => type_eqv x y) ys) id
   | _, _ => false
 
 local instance : BEq (Typ α) := ⟨type_eqv⟩
@@ -103,6 +107,7 @@ partial def collect_vars : Typ α → List String := fun t => go {} t |>.run' {}
       for arg in args do
         ns ← go ns arg
       return ns
+    | Typ.tuple _ xs => xs.foldlM go ns
 
 def instantiate_vars : Typ Unit → TypeM (Typ Unit) := fun type => do
   let s ← getThe TypeVarContext
@@ -164,6 +169,10 @@ partial def unify : Typ' → Typ' → TypeM Unit := fun x y => do
     assert! args_x.length == args_y.length
     unify ctor_x ctor_y
     _ ← args_x.zipWithM (bs := args_y) unify
+  | .tuple () xs, .tuple () ys =>
+    unless xs.length == ys.length do
+      throw s!"cannot unify tuples {x} with {y}"
+    discard <| xs.zipWithM unify ys
   | x, y => throw s!"cannot unify type {x} with {y}"
 
 private def get_decl! (name : String) : TypeM Typ' := do
@@ -210,6 +219,10 @@ def unary_ops : Prim1 → TypeScheme
     TypeScheme.mk [] (Typ.arrow [type_bool] type_bool)
   | .neg =>
     TypeScheme.mk [] (Typ.arrow [type_int] type_int)
+  | .fst =>
+    TypeScheme.mk ["X", "Y"] (Typ.arrow [Typ.tuple () [(Typ.var () "X"), (Typ.var () "Y")]] (Typ.var () "X"))
+  | .snd =>
+    TypeScheme.mk ["X", "Y"] (Typ.arrow [Typ.tuple () [(Typ.var () "X"), (Typ.var () "Y")]] (Typ.var () "Y"))
 
 mutual
 
@@ -260,6 +273,17 @@ partial def infer_type (e : Expr') : TypeM Typ' := do
           throw s!"{loc}: function {name} expected {argTypes.length} arguments, but {args.length} are given"
         let _ ← argTypes.zipWithM (bs := args) (fun t e => do unify t (← infer_type e))
         instantiate_vars retType
+    | .tuple _ xs =>
+      let ts ← xs.mapM infer_type
+      return Typ.tuple () ts
+    | .get_item _ e i n =>
+      if n = 0 then
+        throw "size of tuple access must be positive"
+      let ts ← List.range n |>.mapM fun i => new_type_var s!"Tup{i}"
+      let dummy := Typ.tuple () ts
+      let type ← infer_type e
+      unify dummy type
+      instantiate_vars ts[i]!
   hint?.forM fun hint => do
     let hint := hint.unsetTag
     let p? ← is_type_param? hint
@@ -356,7 +380,7 @@ private def type_check_mutual_decl (decl : MutualDecl (Location × Option (Typ S
           type_check_expr body retType
   let result ← decls'.mapM fun ((name, selfType), _, _, _, _) => do
     let r ← generalize selfType
-    -- dbg_trace s!"generalized: {name} : {r}"
+    dbg_trace s!"generalized: {name} : {r}"
     return (name, r)
   return result
 

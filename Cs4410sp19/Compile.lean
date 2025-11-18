@@ -22,9 +22,17 @@ error_non_bool:
   add esp, 4 * 2
 "
 
-private def externs : List String := ["error", "print"]
+def error_non_tuple := "
+error_non_tuple:
+  push eax
+  push 3
+  call error
+  add esp, 4 * 2
+"
 
-private def helpers : List String := [error_non_number, error_non_bool]
+private def externs : List String := ["error", "error_tuple_size_mismatch", "print",]
+
+private def helpers : List String := [error_non_number, error_non_bool, error_non_tuple]
 
 private def compile_prog_core (prog : Program (Location × Option (Typ String.Pos))) (builtin : Std.HashMap String TypeScheme) : Except String String := do
   let _prog_type ← Tych.type_check_prog prog builtin
@@ -42,6 +50,9 @@ private def compile_prog_core (prog : Program (Location × Option (Typ String.Po
 {ds}
 global our_code_starts_here
 our_code_starts_here:
+  mov esi, dword [esp + 4]
+  add ESI, 7
+  and ESI, 0xfffffff8
 {main}"
 
 def compile_prog (prog : Program (Location × Option (Typ String.Pos))) : Except String String :=

@@ -92,23 +92,51 @@ private def sepBy1 (sep : Parser Unit) (x : Parser α) (allow_ws : Bool := true)
 
 def parse_ident : Parser String := parse_ident_no_ws <* ws
 
-def parse_type_var : Parser (Typ String.Pos) := do
+mutual
+
+partial def parse_type_var : Parser (Typ String.Pos) := do
   let pos ← pos
   _ ← pchar '\''
   let name ← parse_ident
   ws
   return Typ.var pos name
 
-def parse_type_const : Parser (Typ String.Pos) := do
+partial def parse_type_const : Parser (Typ String.Pos) := do
   let pos ← pos
   let x ← pstring "Int" <|> pstring "Bool"
   ws
   return Typ.const pos x
 
-def parse_type_atomic : Parser (Typ String.Pos) := attempt parse_type_var <|> parse_type_const
+partial def parse_type_atomic : Parser (Typ String.Pos) :=
+  attempt parse_type_var
+    <|> attempt (do
+      let pos ← pos
+      atom "("
+      let head ← parse_type
+      let trailing ← many1 do
+        atom "*"
+        parse_type
+      atom ")"
+      return Typ.tuple pos (head :: trailing.toList)
+      )
+    <|> attempt (do
+      let pos ← pos
+      atom "("
+      atom ")"
+      return Typ.tuple pos []
+      )
+    <|> attempt (do
+      atom "("
+      let type ← parse_type
+      atom ")"
+      pure type
+      )
+    <|> parse_type_const
 
-def parse_type : Parser (Typ String.Pos) := do
+partial def parse_type : Parser (Typ String.Pos) := do
   parse_type_atomic
+
+end
 
 variable (pe : Parser Expr) in
 mutual
@@ -164,21 +192,71 @@ partial def parse_false : Parser Expr := do
   atom "false"
   return (.bool (pos, none) .false)
 
-partial def parse_expr_inner : Parser Expr := do
+partial def parse_tuple : Parser Expr :=
+  attempt (do
+    let pos ← pos
+    atom "("
+    atom ")"
+    return (.tuple (pos, none) [])
+    )
+  <|> (do
+    let pos ← pos
+    atom "("
+    let head ← pe
+    let trailing ← many1 do
+      atom ","
+      pe
+    atom ")"
+    return (.tuple (pos, none) (head :: trailing.toList)))
+
+partial def parse_expr_atomic : Parser Expr := do
   attempt (pos >>= fun pos => Expr.num (pos, none) <$> parse_num_val)
-  <|> attempt parse_let_in <|> attempt parse_ite
+  <|> attempt parse_tuple
   <|> attempt (pchar '(' *> ws *> pe <* ws <* pchar ')' <* ws)
   <|> attempt parse_true
   <|> attempt parse_false
   <|> attempt parse_function_call
   <|> attempt (pos >>= fun pos => Expr.id (pos, none) <$> parse_ident)
 
+partial def parse_tuple_access : Parser Expr := do
+  let expr ← parse_expr_atomic
+  (fix trail expr)
+  <|> return expr
+  where trail expr : Parser Expr := do
+    let pos ← pos
+    atom "["
+    let idx ← parse_num_val
+    if idx < 0 then
+      fail "indexing of tuple access must be non-negative"
+    atom "of"
+    let n ← parse_num_val
+    if n ≤ 0 then
+      fail "size of tuple access must be positive"
+    unless idx < n do
+      fail "indexing of tuple access must be strictly smaller than the size"
+    atom "]"
+    return .get_item (pos, none) expr idx.natAbs n.natAbs
+
+partial def parse_expr_inner : Parser Expr := attempt parse_let_in <|> attempt parse_ite <|> parse_tuple_access
+
+partial def parse_pair_access : Parser Expr := do
+  (do
+    let pos ← pos
+    atom "fst"
+    Expr.prim1 (pos, none) .fst <$> parse_expr_inner
+    ) <|>
+  (do
+    let pos ← pos
+    atom "snd"
+    Expr.prim1 (pos, none) .snd <$> parse_expr_inner
+    ) <|> parse_expr_inner
+
 partial def parse_neg : Parser Expr := do
   attempt (do
     let pos ← pos
     atom "-"
-    Expr.prim1 (pos, none) .neg <$> parse_neg
-    ) <|> parse_expr_inner
+    Expr.prim1 (pos, none) .neg <$> parse_pair_access
+    ) <|> parse_pair_access
 
 partial def parse_not : Parser Expr := do
   attempt (do

@@ -50,6 +50,16 @@ where
       let args' := ts.unzip.fst
       let name_res ← gensym "result"
       return (ImmExpr.id () name_res, setups ++ #[(name_res, CExpr.call () name args')])
+    | .tuple _ xs =>
+      let vs ← xs.mapM helpI
+      let (ys, ss) := vs.unzip
+      let setup := ss.toArray.flatMap id
+      let name_res ← gensym "result"
+      return (ImmExpr.id () name_res, setup ++ #[(name_res, CExpr.tuple () ys)])
+    | .get_item _ e i n =>
+      let (e', setup) ← helpI e
+      let name_res ← gensym "result"
+      return (ImmExpr.id () name_res, setup ++ #[(name_res, CExpr.get_item () e' i n)])
   helpC (e : Expr α) : m ((CExpr Unit) × Array (String × (CExpr Unit))) := do
     match e with
     | .prim1 _ op operand =>
@@ -82,6 +92,14 @@ where
       let setups := ts.toArray.unzip.snd.flatMap id
       let args' := ts.unzip.fst
       return (CExpr.call () name args', setups)
+    | .tuple _ xs =>
+      let vs ← xs.mapM helpI
+      let (ys, ss) := vs.unzip
+      let setup := ss.toArray.flatMap id
+      return (CExpr.tuple () ys, setup)
+    | .get_item _ e i n =>
+      let (e', setup) ← helpI e
+      return (CExpr.get_item () e' i n, setup)
     | _ =>
       let (imm, setup) ← helpI e
       return (CExpr.imm imm, setup)
@@ -106,6 +124,12 @@ private def load_number_checked (src : Arg) : Array Instruction :=
 private def load_bool_checked (src : Arg) : Array Instruction :=
   #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
 
+private def load_tuple_checked (src : Arg) : Array Instruction :=
+  #[ .mov eax src, .and eax (.const 0x7), .cmp eax (.const 1), .mov eax src, .jnz "error_non_tuple" ]
+
+private def load_tuple_address_checked (src : Arg) : Array Instruction :=
+  load_tuple_checked src ++ #[ .sub eax (.const 1) ]
+
 partial def compile_imm (e : ImmExpr α) : CompileFuncM (Array Instruction) := do
   match e with
   | .num _ n =>
@@ -129,6 +153,12 @@ partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array
   | .prim1 _ .not x =>
     let x ← x.arg
     return load_bool_checked x ++ #[ .xor eax (.const 0x8000_0000) ]
+  | .prim1 _ .fst x =>
+    let x ← x.arg
+    return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 1) ]
+  | .prim1 _ .snd x =>
+    let x ← x.arg
+    return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 2) ]
   | .prim2 _ .plus x y =>
     let lhs ← x.arg
     let rhs ← y.arg
@@ -235,6 +265,24 @@ partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array
     else
       let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
       return rs ++ #[ .call asm_name, .add (.reg .esp) (.const (4 * n)) ]
+  | .tuple _ xs =>
+    let n := xs.length
+    let ts : Array Instruction ← xs.toArray.zipIdx |>.flatMapM fun (x, i) => do
+      let arg ← x.arg
+      return #[
+        .mov eax arg,
+        .mov (.reg_offset .esi (i + 1)) eax, ]
+    return #[ .mov (.reg_offset .esi 0) (.const n) ] ++ ts ++ #[
+      .mov eax (.reg .esi),
+      .add eax (.const 1),
+      .add (.reg .esi) (.const (4 * ((if 2 ∣ n then n + 1 else n) + 1))) ]
+  | .get_item _ e i n =>
+    let arg ← e.arg
+    return load_tuple_address_checked arg ++ #[
+      .cmp (.reg_offset .eax 0) (.const n),
+      .jnz "error_tuple_size_mismatch",
+      .mov eax (.reg_offset .eax (i + 1)) ]
+
 
 partial def compile_aexpr (e : AExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
   match e with
