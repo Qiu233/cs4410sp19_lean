@@ -3,31 +3,22 @@
 ## preparation
 
 ```bash
-$ sudo apt install gcc-multilib nasm
-```
-
-```bash
-cd wrapper
-$ nasm -f elf32 -o our_code.o our_code.s
-$ clang -g -m32 -o our_code main.c our_code.o
+$ sudo apt install build-essential gcc-multilib nasm
 ```
 
 ## run
 
+To compile and run the fle `ws/main.int`:
 ```bash
 $ lake run
 ```
 
-or
-
+To run the tests:
 ```bash
-$ lake run .
+$ lake test
 ```
 
-or
-
+To run some specific tests (e.g. type checking):
 ```bash
-$ lake run . main
+$ lake test -- tych
 ```
-
-where `main` can be replaced by another name as long as `name.int` exists in the folder `ws`.
