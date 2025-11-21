@@ -1,8 +1,8 @@
 import Cs4410sp19.Basic
 import Cs4410sp19.Parser
 import Cs4410sp19.Compile.Basic
-import Cs4410sp19.Compile.ANF
-import Cs4410sp19.Compile.Tych
+import Cs4410sp19.ANF
+import Cs4410sp19.Tych
 
 namespace Cs4410sp19
 
