@@ -89,12 +89,12 @@ def asm_to_string : Array Instruction → String := fun xs =>
 inductive Prim1 where
   | neg | not
   | fst | snd
-deriving Inhabited, Repr
+deriving Inhabited, Repr, BEq
 
 inductive Prim2 where
   | plus | minus | times
   | land | lor | lt | le | gt | ge | eq | ne
-deriving Inhabited, Repr
+deriving Inhabited, Repr, BEq
 
 inductive Typ (α : Type) where
   | var : α → String → Typ α
@@ -183,6 +183,7 @@ structure FuncDef α where
   body : Expr α
   params : List (String × Option (Typ α))
   ret_type? : Option (Typ α)
+deriving Inhabited, Repr
 
 def FuncDef.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : FuncDef α → m (FuncDef β) := fun ⟨name, body, params, ret_type?⟩ => do
   let body' ← body.mapM f
@@ -194,6 +195,7 @@ def FuncDef.unsetTag : FuncDef α → FuncDef Unit := fun e => Id.run <| e.mapM 
 
 inductive Decl α where
   | function : α → FuncDef α → Decl α
+deriving Inhabited, Repr
 
 def Decl.name : Decl α → String
   | .function _ f => f.name
@@ -206,6 +208,7 @@ def Decl.unsetTag : Decl α → Decl Unit := fun e => Id.run <| e.mapM (fun _ =>
 structure MutualDecl α where
   tag : α
   decls : List (Decl α)
+deriving Inhabited, Repr
 
 def MutualDecl.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : MutualDecl α → m (MutualDecl β) := fun p => do
   let tag' ← f p.tag
@@ -218,6 +221,7 @@ structure Program (α : Type) where
   tag : α
   decls : Array (MutualDecl α)
   exe_code : Expr α
+deriving Inhabited, Repr
 
 def Program.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α → m β) : Program α → m (Program β) := fun p => do
   let tag' ← f p.tag
@@ -226,3 +230,11 @@ def Program.mapM {α β} {m : Type → Type} [Inhabited β] [Monad m] (f : α �
   return Program.mk tag' decls' r
 
 def Program.unsetTag : Program α → Program Unit := fun e => Id.run <| e.mapM (fun _ => pure ())
+
+class MonadNameGen (m : Type → Type) where
+  gensym : String → m String
+
+instance {m n} [MonadLift m n] [inst : MonadNameGen m] : MonadNameGen n where
+  gensym x := MonadLift.monadLift (inst.gensym x)
+
+export MonadNameGen (gensym)

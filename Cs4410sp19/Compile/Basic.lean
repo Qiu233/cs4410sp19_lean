@@ -14,14 +14,6 @@ def StackSlot.to_arg : StackSlot → Arg
   | .esp i => .reg_offset .esp i
   | .ebp i => .reg_offset .ebp i
 
-class MonadNameGen (m : Type → Type) where
-  gensym : String → m String
-
-instance {m n} [MonadLift m n] [inst : MonadNameGen m] : MonadNameGen n where
-  gensym x := MonadLift.monadLift (inst.gensym x)
-
-export MonadNameGen (gensym)
-
 section
 
 structure Env where
