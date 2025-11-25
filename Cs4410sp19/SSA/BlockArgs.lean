@@ -14,22 +14,20 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
   let mut patches : Std.HashMap String (List (Nat × String × (String ⊕ Inst Unit String VarName Operand))) := {}
   for B in cfg.blocks.reverse do
     let applyPatch (p : BasicBlock Unit String VarName Operand) : BasicBlock Unit String VarName Operand := Id.run do
-      assert! !p.insts.isEmpty
       let some brs := patches[p.id]? | return p
       if brs.isEmpty then
         return p
-      let mut last := p.back!
+      let mut term := p.terminal
       for (i, o, s) in brs do
         match s with
-        | .inl s => -- iteratively erase the args
-          last := last.set_branching! o s i []
-        | .inr i' => -- insert `pc` before the outgoing `jmp`, and erase the args
+        | .inl s => -- iteratively erase the args (update terminal)
+          term := term.set_branching! o s i []
+        | .inr i' => -- insert `pc` (append) and erase the args in the terminal
           assert! brs.length == 1
-          assert! last matches .jmp ..
-          let insts' := p.insts.insertIdx! (p.insts.size - 1) i'
-          let insts' := insts'.modify (insts'.size - 1) fun x => x.set_branching! o o i []
-          return { id := p.id, params := p.params, insts := insts' }
-      return { id := p.id, params := p.params, insts := p.insts.set! (p.insts.size - 1) last }
+          let insts' := p.insts.push i'
+          let term' := term.set_branching! o o i []
+          return { id := p.id, params := p.params, insts := insts', terminal := term' }
+      return { id := p.id, params := p.params, insts := p.insts, terminal := term }
     --
     let B := applyPatch B
     if B.params.isEmpty then
@@ -42,7 +40,7 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
     assert! B.params.length == vs.length
     let subst (i : Inst Unit String VarName Operand) := i.instantiate_params (B.params.zipWith (fun p v => (p, .var v)) vs)
     let B'_insts := B.insts.map subst
-    let B' : BasicBlock Unit String VarName Operand := { id := B.id, params := [], insts := B'_insts }
+    let B' : BasicBlock Unit String VarName Operand := { id := B.id, params := [], insts := B'_insts, terminal := B.terminal }
     blocks' := blocks'.push B'
     for (P_id, i) in pred[B.id]!.reverse do
       patches := patches.alter P_id fun
@@ -52,17 +50,16 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
         break
       else
         let P := cfg.get! P_id
-        assert! !P.insts.isEmpty
-        let P_last := P.back!
-        let passed := P_last.get_branching_args! B.id i
+        let passed := P.terminal.get_branching_args! B.id i
         assert! passed.length == vs.length
         let pc := Inst.pc () (vs.zip passed)
         if succ[P_id]!.size == 1 then
-          assert! P_last matches .jmp ..
-          patches := patches.modify P_id (List.insert (i, B.id, .inr pc))
+          match P.terminal with
+          | .jmp _ _ _ => patches := patches.modify P_id (List.insert (i, B.id, .inr pc))
+          | _ => panic! "expected unconditional jump"
         else
           let splitName ← gensym s!".split_{P_id}_{B.id}_{i}"
-          let P_B' : BasicBlock Unit String VarName Operand := { id := splitName, params := [], insts := #[ pc, .jmp () B.id [] ] }
+          let P_B' : BasicBlock Unit String VarName Operand := { id := splitName, params := [], insts := #[ pc ], terminal := .jmp () B.id [] }
           blocks' := blocks'.push P_B'
           patches := patches.modify P_id (List.insert (i, B.id, .inl splitName))
   let entry := blocks'.back!
@@ -74,6 +71,6 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
       else
         x
     | x => x
-  let entry' := { entry with params := [], insts := einsts }
+  let entry' := { entry with params := [], insts := einsts, terminal := entry.terminal }
   blocks' := blocks'.set! (blocks'.size - 1) entry'
   return { name := cfg.name, blocks := blocks'.reverse }

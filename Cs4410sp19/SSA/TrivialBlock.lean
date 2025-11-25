@@ -24,7 +24,7 @@ private structure Triple where
   /-- The unique instruction of `T`.
   We track this instruction, so we can iteratively reduce triples by existing triples.
   -/
-  jmp : Inst Unit String VarName Operand
+  jmp : Terminal Unit String Operand
 deriving Inhabited, Repr
 
 private def Triple.composite (c : Triple) (next : Triple) : Triple := Id.run do
@@ -36,19 +36,21 @@ private def Triple.composite (c : Triple) (next : Triple) : Triple := Id.run do
   assert! c.T == next.P
   let args := c.jmp.get_branching_args! next.T 0 -- `c.jmp.branching_args[0]`
   assert! next.params.length == args.length
-  let T'_jmp := next.jmp.instantiate_params (next.params.zip args)
+  let T'_jmp := next.jmp.replace_src fun
+    | .param x => (next.params.zip args).lookup x
+    | _ => Option.none
   return { P := c.P, edge := c.edge, T := c.T, B := next.B, params := c.params, jmp := T'_jmp }
 
 private def Triple.apply (p : BasicBlock Unit String VarName Operand) (t : Triple) : BasicBlock Unit String VarName Operand := Id.run do
   assert! p.id == t.P
-  assert! !p.insts.isEmpty
-  let p_to_t := p.back!
-  let args := p_to_t.get_branching_args! t.T t.edge
+  let args := p.terminal.get_branching_args! t.T t.edge
   assert! args.length == t.params.length
-  let jmp := t.jmp.instantiate_params (t.params.zip args)
+  let jmp := t.jmp.replace_src fun
+    | .param x => (t.params.zip args).lookup x
+    | _ => Option.none
   let args' := jmp.get_branching_args! t.B 0
-  let p_to_b := p_to_t.set_branching! t.T t.B t.edge args'
-  let p' := { p with insts := p.insts.set! (p.insts.size - 1) p_to_b }
+  let p_to_b := p.terminal.set_branching! t.T t.B t.edge args'
+  let p' := { p with insts := p.insts, terminal := p_to_b }
   return p'
 
 def eliminate_trivial_blocks (cfg : CFG' Unit String VarName Operand) : CFG' Unit String VarName Operand := Id.run do
@@ -85,16 +87,13 @@ def eliminate_trivial_blocks (cfg : CFG' Unit String VarName Operand) : CFG' Uni
   where
     succ := cfg.config.successors
     pred := cfg.config.predecessors
-    is_trivial? (t : BasicBlock Unit String VarName Operand) : Option (String × Inst Unit String VarName Operand) := Id.run do
-      assert! !t.insts.isEmpty
-      if t.insts.size > 1 then return none
+    is_trivial? (t : BasicBlock Unit String VarName Operand) : Option (String × Terminal Unit String Operand) := Id.run do
       let ss := succ[t.id]?.getD {}
-      assert! ss.size == 1 -- the unconditional jump can only have a single target
-      let inst := t.head! -- the single instruction
-      let (target, _) ← match inst with
-        | .jmp _ target args => pure (target, args)
-        | _ => return none
-      let (b, i) := ss[0]!
-      assert! b == target
-      assert! i == 0
-      return some (target, inst)
+      if ss.size != 1 then return none
+      match t.terminal with
+      | .jmp _ target _ =>
+        let (b, i) := ss[0]!
+        assert! b == target
+        assert! i == 0
+        return some (target, t.terminal)
+      | _ => return none

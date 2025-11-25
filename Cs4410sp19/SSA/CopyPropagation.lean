@@ -35,5 +35,5 @@ def reduce_assign [Hashable γ] [BEq γ] : CFG' σ γ VarName Operand → CFG' �
       for (p, q) in substs' do
         x := x.replace_src_by (Operand.var p) q
       return some x
-    return { b with insts := is }
+    return { b with insts := is, terminal := b.terminal }
   return { name := cfg.name, blocks }
