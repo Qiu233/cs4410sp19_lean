@@ -61,7 +61,7 @@ def eliminate_trivial_blocks (cfg : CFG' Unit String VarName Operand) : CFG' Uni
     let ps := pred[t.id]?.getD {}
     if ps.isEmpty then continue
     trivial := trivial.insert t.id
-    for (p, edge) in ps do
+    for ⟨edge, p, _, _⟩ in ps do
       let mut trip : Triple := { P := p, edge := edge, T := t.id, B := target, params := t.params, jmp := inst }
       let mut id' := trip.T
       while triples.contains id' do -- loop invariant: `trip' : id' → T → _` for some trivial `T`
@@ -89,10 +89,10 @@ def eliminate_trivial_blocks (cfg : CFG' Unit String VarName Operand) : CFG' Uni
     pred := cfg.config.predecessors
     is_trivial? (t : BasicBlock Unit String VarName Operand) : Option (String × Terminal Unit String Operand) := Id.run do
       let ss := succ[t.id]?.getD {}
-      if ss.size != 1 then return none
+      if ss.length != 1 then return none
       match t.terminal with
       | .jmp _ target _ =>
-        let (b, i) := ss[0]!
+        let ⟨i, _, b, _⟩ := ss[0]!
         assert! b == target
         assert! i == 0
         return some (target, t.terminal)

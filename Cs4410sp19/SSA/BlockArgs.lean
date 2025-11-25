@@ -33,7 +33,7 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
     if B.params.isEmpty then
       blocks' := blocks'.push B
       continue
-    if pred[B.id]?.isNone || pred[B.id]!.size == 0 then
+    if pred[B.id]?.isNone || pred[B.id]!.length == 0 then
       blocks' := blocks'.push B
       continue
     let vs ← B.params.mapM fun n => genvar s!"{B.id}.{n.name}"
@@ -42,18 +42,18 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
     let B'_insts := B.insts.map subst
     let B' : BasicBlock Unit String VarName Operand := { id := B.id, params := [], insts := B'_insts, terminal := B.terminal }
     blocks' := blocks'.push B'
-    for (P_id, i) in pred[B.id]!.reverse do
+    for ⟨i, P_id, _, _⟩ in pred[B.id]!.reverse do
       patches := patches.alter P_id fun
         | none => some {}
         | some x => some x
-      if succ[P_id]?.isNone || succ[P_id]!.size == 0 then
+      if succ[P_id]?.isNone || succ[P_id]!.length == 0 then
         break
       else
         let P := cfg.get! P_id
         let passed := P.terminal.get_branching_args! B.id i
         assert! passed.length == vs.length
         let pc := Inst.pc () (vs.zip passed)
-        if succ[P_id]!.size == 1 then
+        if succ[P_id]!.length == 1 then
           match P.terminal with
           | .jmp _ _ _ => patches := patches.modify P_id (List.insert (i, B.id, .inr pc))
           | _ => panic! "expected unconditional jump"

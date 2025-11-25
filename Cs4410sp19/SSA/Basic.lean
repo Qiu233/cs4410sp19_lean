@@ -211,10 +211,17 @@ deriving Inhabited, Repr
 --   assert! !b.insts.isEmpty
 --   b.insts.back!
 
-def BasicBlock.succ : BasicBlock σ γ δ α → List (γ × List α) := fun b =>
+structure Edge (γ α : Type) where
+  idx : Nat
+  start : γ
+  target : γ
+  args : List α
+deriving Inhabited, Repr
+
+def BasicBlock.succ : BasicBlock σ γ δ α → List (Edge γ α) := fun b =>
   match b.terminal with
-  | .jmp _ target args => [(target, args)]
-  | .br _ _ btrue targs bfalse fargs => [(btrue, targs), (bfalse, fargs)]
+  | .jmp _ target args => [⟨0, b.id, target, args⟩]
+  | .br _ _ btrue targs bfalse fargs => [⟨0, b.id, btrue, targs⟩, ⟨1, b.id, bfalse, fargs⟩]
   | .ret .. => []
 
 structure CFG σ γ δ α where
@@ -234,39 +241,41 @@ instance : ToString Operand where
     | .param name => s!"${name}"
     | .const x => s!"{x}"
 
-private def CFG.edges [Hashable γ] [BEq γ] : CFG σ γ δ α → Array (γ × γ × Nat) := fun cfg => Id.run do
-  let mut es : Array (γ × γ × Nat) := {}
-  for node in cfg.blocks do
-    match node.terminal with
-    | .jmp _ target _ =>
-      es := es.push (node.id, target, 0)
-    | .br _ _ btrue _ bfalse _ =>
-      es := es.push (node.id, btrue, 0)
-      es := es.push (node.id, bfalse, 1)
-    | .ret _ _ => pure ()
-  return es
+-- private def CFG.edges [Hashable γ] [BEq γ] : CFG σ γ δ α → Array (γ × γ × Nat) := fun cfg => Id.run do
+--   let mut es : Array (γ × γ × Nat) := {}
+--   for node in cfg.blocks do
+--     match node.terminal with
+--     | .jmp _ target _ =>
+--       es := es.push (node.id, target, 0)
+--     | .br _ _ btrue _ bfalse _ =>
+--       es := es.push (node.id, btrue, 0)
+--       es := es.push (node.id, bfalse, 1)
+--     | .ret _ _ => pure ()
+--   return es
 
-private def CFG.successors [Hashable γ] [BEq γ] : CFG σ γ δ α → Std.HashMap γ (Array (γ × Nat)) := fun cfg =>
-  let es := CFG.edges cfg
-  let t := es.groupByKey (fun (k, _) => k)
-  t.map fun _ v => v.unzip.snd.toList.mergeSort (fun (_, k1) (_, k2) => k1 ≤ k2) |>.toArray
+-- private def CFG.successors [Hashable γ] [BEq γ] : CFG σ γ δ α → Std.HashMap γ (Array (γ × Nat)) := fun cfg =>
+--   let es := CFG.edges cfg
+--   let t := es.groupByKey (fun (k, _) => k)
+--   t.map fun _ v => v.unzip.snd.toList.mergeSort (fun (_, k1) (_, k2) => k1 ≤ k2) |>.toArray
 
-private def CFG.predecessors [Hashable γ] [BEq γ] : CFG σ γ δ α → Std.HashMap γ (Array (γ × Nat)) := fun cfg =>
-  let es := CFG.edges cfg
-  let t := es.groupByKey (fun (_, k, _) => k)
-  t.map fun _ v => v.map (fun (x, _, i) => (x, i)) |>.toList.mergeSort (fun (_, k1) (_, k2) => k1 ≤ k2) |>.toArray
+-- private def CFG.predecessors [Hashable γ] [BEq γ] : CFG σ γ δ α → Std.HashMap γ (Array (γ × Nat)) := fun cfg =>
+--   let es := CFG.edges cfg
+--   let t := es.groupByKey (fun (_, k, _) => k)
+--   t.map fun _ v => v.map (fun (x, _, i) => (x, i)) |>.toList.mergeSort (fun (_, k1) (_, k2) => k1 ≤ k2) |>.toArray
 
 structure CFG.Config (σ γ δ α : Type) [Hashable γ] [BEq γ] where
   /-- sorted -/
-  protected successors : Std.HashMap γ (Array (γ × Nat))
+  protected successors : Std.HashMap γ (List (Edge γ α))
   /-- sorted -/
-  protected predecessors : Std.HashMap γ (Array (γ × Nat))
+  protected predecessors : Std.HashMap γ (List (Edge γ α))
   protected quick_table : Std.HashMap γ (BasicBlock σ γ δ α)
 deriving Inhabited, Repr
 
 private def CFG.config [Hashable γ] [BEq γ] : CFG σ γ δ α → CFG.Config σ γ δ α := fun cfg =>
   let quick_table := Std.HashMap.ofList <| Array.toList <| cfg.blocks.map fun x => (x.id, x)
-  ⟨cfg.successors, cfg.predecessors, quick_table⟩
+  let ss := Std.HashMap.ofList <| cfg.blocks.toList.map fun b => (b.id, b.succ)
+  let ps := cfg.blocks.toList.flatMap (fun b => b.succ) |>.groupByKey fun x => x.target
+  ⟨ss, ps, quick_table⟩
 
 /-- Bundled version of `CFG` so we won't recompute the edges again and again.
 The default value of `config` allows *implicitly* rebuilding when reconstructing the struct.
