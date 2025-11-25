@@ -17,21 +17,11 @@ def StackSlot.to_arg : StackSlot → Arg
 section
 
 structure Env where
-  names : Std.HashMap String Nat := {}
   functions : Std.HashSet String := {}
 
-abbrev CompileM := ExceptT String (StateM Env)
+abbrev CompileM := ExceptT String <| StateT Env <| FreshM
 
-def CompileM.run : CompileM α → Env → (Except String α × Env) := fun x env => x env
-
-def CompileM.gensym (pref : String) : CompileM String := do
-  let count ← modifyGet (fun s =>
-    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
-    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
-  let name := s!"{pref}_{count}"
-  return name
-
-instance : MonadNameGen CompileM := ⟨CompileM.gensym⟩
+def CompileM.run : CompileM α → Env → FreshM (Except String α × Env) := fun x env => x env
 
 def gen_label [MonadNameGen m] (suggestedName : String) : m String :=
   gensym s!"label_{suggestedName}"

@@ -3,69 +3,62 @@ import Cs4410sp19.SSA.Construct
 import Cs4410sp19.SSA.DeadBlock
 import Cs4410sp19.SSA.TrivialBlock
 import Cs4410sp19.SSA.BlockArgs
--- import Cs4410sp19.SSA.RegAlloc
+import Cs4410sp19.SSA.CopyPropagation
 
 namespace Cs4410sp19
 namespace SSA
 
-def reduce_assign [Hashable γ] [BEq γ] : CFG' σ γ VarName Operand → CFG' σ γ VarName Operand := fun cfg => runST fun σ' => do
-  let substs ← ST.mkRef (σ := σ') (α := Std.HashMap VarName Operand) {} -- TODO: use functional data structure
-  for node in cfg.blocks do
-    for i in node.insts do
-      match i with
-      | .assign _ x y =>
-        match y with
-        | .param .. => pure ()
-        | _ => substs.modify fun s => s.insert x y
-      | _ => pure ()
-  while true do
-    let mut flag := false
-    let s ← substs.get
-    for (p, q) in s do
-      let Operand.var q := q | continue
-      let some q' := s[q]? | continue
-      substs.modify fun s => s.insert p q'
-      flag := true
-      break
-    if !flag then
-      break
-  let substs ← substs.get
-  let substs' := substs.toArray
-  let blocks : Array (BasicBlock σ γ VarName Operand) := cfg.blocks.map fun b => Id.run do
-    let is := b.insts.filterMap fun x => Id.run do
-      let _ ← match x with
-        | .assign _ n _ => if substs.contains n then return none else pure ()
-        | _ => pure ()
-      let mut x := x
-      for (p, q) in substs' do
-        x := x.replace_src_by (Operand.var p) q
-      return some x
-    return { b with insts := is }
-  return { name := cfg.name, blocks }
-
-
-def pp_insts [ToString σ] [ToString γ] [ToString δ] [ToString α] (insts : List (Inst σ γ δ α)) := insts.map (fun x => s!"{x}") |> String.intercalate "\n"
-def pp_insts' [ToString γ] [ToString δ] [ToString α] (insts : List (Inst Unit γ δ α)) := insts.map (fun x => s!"{x}") |> String.intercalate "\n"
-
-def pp_cfg [ToString σ] [ToString γ] [ToString δ] [ToString α] (cfg : CFG σ γ δ α) : String := Id.run do
-  let mut store := #[]
-  for i in cfg.blocks do
-    if i.params.isEmpty then
-      store := store.push s!"{i.id}:"
-    else
-      store := store.push s!"{i.id}({String.intercalate ", " (i.params.map toString)}):"
-    store := store.push s!"{pp_insts i.insts.toList}"
-  return String.intercalate "\n" store.toList
-
-def pp_cfg' [ToString γ] [ToString δ] [ToString α] (cfg : CFG Unit γ δ α) : String := Id.run do
-  let mut store := #[]
-  for i in cfg.blocks do
-    if i.params.isEmpty then
-      store := store.push s!"{i.id}:"
-    else
-      store := store.push s!"{i.id}(${String.intercalate ", " (i.params.map toString)}):"
-    store := store.push s!"{pp_insts' i.insts.toList}"
-  return String.intercalate "\n" store.toList
+def normalize_vars [Monad m] [MonadNameGen m] (vpref : String) (ppref : String) : CFG' σ String VarName Operand → m (CFG' σ String VarName Operand) :=
+  fun cfg => StateT.run' (σ := Std.HashMap String String) (s := {}) do
+    let get_or_new (n : String) := do
+      let rn ← get
+      if let some r := rn[n]? then
+        return r
+      else
+        let new ← gensym vpref
+        modify fun rn => rn.insert n new
+        return new
+    let get_or_new_param (bName : String) (n : String) := do
+      let n := s!"{bName}.{n}"
+      let rn ← get
+      if let some r := rn[n]? then
+        return r
+      else
+        let new ← gensym ppref
+        modify fun rn => rn.insert n new
+        return new
+    let get_param! (bName : String) (n : String) := do
+      let n := s!"{bName}.{n}"
+      let rn ← get
+      if let some r := rn[n]? then
+        return r
+      else
+        unreachable!
+    let blocks ← cfg.blocks.mapM fun b => do
+      let insts ← b.insts.mapM fun inst =>
+        inst.mapM_dst fun v =>
+          VarName.mk <$> get_or_new v.name
+      return { b with insts }
+    let blocks ← blocks.mapM fun b => do
+      let insts ← b.insts.mapM fun inst => do
+        inst.mapM_src fun
+          | Operand.var v => do
+            let r ← get_or_new v.name
+            return Operand.var ⟨r⟩
+          | op => return op
+      return { b with insts }
+    let blocks ← blocks.mapM fun b => do
+      let params ← b.params.mapM fun p => do
+        let r ← get_or_new_param b.id p.name
+        return VarName.mk r
+      let insts ← b.insts.mapM fun inst => do
+        inst.mapM_src fun
+          | Operand.param v => do
+            let r ← get_param! b.id v.name
+            return Operand.param ⟨r⟩
+          | op => return op
+      return { b with params, insts }
+    return { name := cfg.name, blocks }
 
 -- #exit
 
@@ -94,21 +87,26 @@ def src := "def f(x, y):
     let r : CFG' Unit String VarName Operand := { r with }
     return r
     ) (fun n => pure n) |>.run {} |>.run' {}
-  let (r, s) := s.run {}
+  let (r, _) := s.run {}
   println! "converted:"
-  println! "{pp_cfg' r.toCFG}\n"
+  println! "{SSA.pp_cfg' r.toCFG}\n"
 
   let r := reduce_assign r
   println! "unary assignment reduced:"
-  println! "{pp_cfg' r.toCFG}\n"
+  println! "{SSA.pp_cfg' r.toCFG}\n"
 
   let r := eliminate_trivial_blocks r
   println! "trivial blocks reduced:"
-  println! "{pp_cfg' r.toCFG}\n"
+  println! "{SSA.pp_cfg' r.toCFG}\n"
+
+  let (r, s) := FreshM.run (normalize_vars "x" "a" r) {}
+  println! "variables normalized:"
+  println! "{SSA.pp_cfg' r.toCFG}\n"
 
   let (r, s) := FreshM.run (eliminate_block_args r) s
   println! "block args eliminated:"
-  println! "{pp_cfg' r.toCFG}\n"
+  println! "{SSA.pp_cfg' r.toCFG}\n"
+
   -- let es := edges r
   -- println! "edges = {es}"
   -- let r : CFG' Unit String VarName VarName := { r with }

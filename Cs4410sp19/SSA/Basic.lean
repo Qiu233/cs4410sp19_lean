@@ -241,13 +241,13 @@ class CanbeVar (α : Type) where
   ofVar : VarName → α
 export CanbeVar (isVar? ofVar)
 
-@[always_inline]
-instance : CanbeVar Operand where
-  isVar?
-    | .var x => some x
-    | .param _ => none
-    | .const _ => none
-  ofVar := Operand.var
+-- @[always_inline]
+-- instance : CanbeVar Operand where
+--   isVar?
+--     | .var x => some x
+--     | .param _ => none
+--     | .const _ => none
+--   ofVar := Operand.var
 
 private def CFG.edges [Hashable γ] [BEq γ] : CFG σ γ δ α → Array (γ × γ × Nat) := fun cfg => Id.run do
   let mut es : Array (γ × γ × Nat) := {}
@@ -324,6 +324,21 @@ def Inst.mapM_src [Monad m] (f : α → m β) : Inst σ γ δ α → m (Inst σ 
   | .get_arg tag n i               => return .get_arg tag n i
 
 @[always_inline, specialize]
+def Inst.mapM_dst [Monad m] (f : δ → m δ') : Inst σ γ δ α → m (Inst σ γ δ' α) := fun e => do
+  match e with
+  | .assign tag n v                => return .assign tag (← f n) v
+  | .br tag cond bp pargs bn nargs => return .br tag cond bp pargs bn nargs
+  | .jmp tag target xs             => return .jmp tag target xs
+  | .prim2 tag n op x y            => return .prim2 tag (← f n) op x y
+  | .prim1 tag n op x              => return .prim1 tag (← f n) op x
+  | .call tag n fn xs              => return .call tag (← f n) fn xs
+  | .mk_tuple tag n xs             => return .mk_tuple tag (← f n) xs
+  | .get_item tag n v i size       => return .get_item tag (← f n) v i size
+  | .ret tag v                     => return .ret tag v
+  | .pc tag xs                     => return .pc tag (← xs.mapM fun (d, x) => (·, x) <$> f d)
+  | .get_arg tag n i               => return .get_arg tag (← f n) i
+
+@[always_inline, specialize]
 def Inst.map_src (f : α → β) : Inst σ γ δ α → Inst σ γ δ β := fun e => e.mapM_src (m := Id) f
 
 @[always_inline, specialize]
@@ -357,20 +372,29 @@ def BasicBlock.map_src (f : α → β) : BasicBlock σ γ δ α → BasicBlock �
 def BasicBlock.replace_src (f : α → Option α) : BasicBlock σ γ δ α → BasicBlock σ γ δ α := fun b =>
   { b with insts := b.insts.map fun x => x.replace_src f }
 
-structure NameGen where
-  names : Std.HashMap String Nat := {}
-
-abbrev FreshM := StateM NameGen
-
-def FreshM.run : FreshM α → NameGen → (α × NameGen) := fun x s => StateT.run x s
-
-def FreshM.gensym (pref : String) : FreshM String := do
-  let count ← modifyGet (fun s =>
-    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
-    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
-  let name := s!"{pref}.{count}"
-  return name
-
 def genvar [Monad m] [MonadNameGen m] (s : String) : m VarName := do
   let n ← gensym s
   return ⟨n⟩
+
+protected def pp_insts [ToString σ] [ToString γ] [ToString δ] [ToString α] (insts : List (Inst σ γ δ α)) := insts.map (fun x => s!"{x}") |> String.intercalate "\n"
+protected def pp_insts' [ToString γ] [ToString δ] [ToString α] (insts : List (Inst Unit γ δ α)) := insts.map (fun x => s!"{x}") |> String.intercalate "\n"
+
+protected def pp_cfg [ToString σ] [ToString γ] [ToString δ] [ToString α] (cfg : CFG σ γ δ α) : String := Id.run do
+  let mut store := #[]
+  for i in cfg.blocks do
+    if i.params.isEmpty then
+      store := store.push s!"{i.id}:"
+    else
+      store := store.push s!"{i.id}({String.intercalate ", " (i.params.map toString)}):"
+    store := store.push s!"{SSA.pp_insts i.insts.toList}"
+  return String.intercalate "\n" store.toList
+
+protected def pp_cfg' [ToString γ] [ToString δ] [ToString α] (cfg : CFG Unit γ δ α) : String := Id.run do
+  let mut store := #[]
+  for i in cfg.blocks do
+    if i.params.isEmpty then
+      store := store.push s!"{i.id}:"
+    else
+      store := store.push s!"{i.id}(${String.intercalate ", " (i.params.map toString)}):"
+    store := store.push s!"{SSA.pp_insts' i.insts.toList}"
+  return String.intercalate "\n" store.toList

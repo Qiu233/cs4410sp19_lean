@@ -11,9 +11,6 @@ structure State where
 
 abbrev M := ReaderT Context <| StateT State FreshM
 
-instance : MonadNameGen FreshM where
-  gensym := FreshM.gensym
-
 def new_block (name : String) (params : List VarName) (insts : Array (Inst Unit String VarName Operand)) : M Unit := do
   modifyThe State fun s => {s with blocks := s.blocks.push <| some ⟨name, params, insts⟩ }
 

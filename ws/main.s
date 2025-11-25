@@ -27,7 +27,7 @@ prod:
 	push ebp
 	mov ebp, esp
 	sub esp, 4
-label_prod_body_0:
+label_prod_body.0:
 	mov dword [esi + 4 * 0], 2
 	mov eax, dword [ebp + 4 * 3]
 	mov dword [esi + 4 * 1], eax
@@ -55,7 +55,7 @@ f:
 	push ebp
 	mov ebp, esp
 	sub esp, 4
-label_f_body_0:
+label_f_body.0:
 	mov eax, 2
 	push eax
 	call print

@@ -39,7 +39,7 @@ private def compile_prog_core (prog : Program (Location × Option (Typ String.Po
   let init_env : Env := { functions := Std.HashSet.ofList builtin.keys }
   let (decls, exe) ← (do
     let prog' ← anf_prog prog
-    compile_anfed_prog_core prog') |>.run' init_env -- run in the initial environment
+    compile_anfed_prog_core prog') |>.run' init_env |>.run' {} -- run in the initial environment
   let ds := decls.map fun (d, is) =>
     s!"{d}:\n{asm_to_string is}\n"
   let ds := String.intercalate "\n" ds.toList

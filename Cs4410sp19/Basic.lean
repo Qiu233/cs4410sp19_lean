@@ -1,4 +1,4 @@
-
+import Std
 namespace Cs4410sp19
 
 inductive Reg where
@@ -234,7 +234,44 @@ def Program.unsetTag : Program α → Program Unit := fun e => Id.run <| e.mapM 
 class MonadNameGen (m : Type → Type) where
   gensym : String → m String
 
+export MonadNameGen (gensym)
+
 instance {m n} [MonadLift m n] [inst : MonadNameGen m] : MonadNameGen n where
   gensym x := MonadLift.monadLift (inst.gensym x)
 
-export MonadNameGen (gensym)
+structure NameGen where
+  names : Std.HashMap String Nat := {}
+
+abbrev FreshM := StateM NameGen
+
+def FreshM.run (x : FreshM α) (ng : NameGen) : (α × NameGen) := StateT.run x ng
+
+def FreshM.gensym (pref : String) : FreshM String := do
+  let count ← modifyGet (fun s =>
+    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
+    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
+  let name := s!"{pref}.{count}"
+  return name
+
+instance : MonadNameGen FreshM where
+  gensym := FreshM.gensym
+
+-- structure Lens (m : Type → Type) (σ : Type) (α : Type) where
+--   get : σ → m α
+--   set : σ → α → m σ
+
+-- class NameLens (m : Type → Type) (σ : Type) extends ForIn m σ (Lens m σ String) where
+
+-- def NameLens.normalize [Monad m] [MonadNameGen m] (lens : NameLens m σ) (pref : String) : σ → m σ := fun input => do
+--   let lenses ← lens.toForIn.forIn (β := Array (Lens m σ String)) input {} (fun n b => pure (.yield <| b.push n))
+--   let mut rn : Std.HashMap String String := {}
+--   let mut t := input
+--   for lens in lenses do
+--     let v ← lens.get t
+--     if let some r := rn[v]? then
+--       t ← lens.set t r
+--     else
+--       let new ← gensym pref
+--       rn := rn.insert v new
+--       t ← lens.set t new
+--   return t
