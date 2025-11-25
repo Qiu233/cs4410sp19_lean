@@ -63,6 +63,19 @@ inductive Terminal (σ : Type) (γ : Type) (α : Type) where
   | ret  : σ → α → Terminal σ γ α
 deriving Inhabited, Repr, BEq
 
+instance [ToString σ] [ToString γ] [ToString α] : ToString (Terminal σ γ α) where
+  toString
+    | .jmp tag target args => s!"{tag}:\tjmp {target}({String.intercalate ", " (args.map ToString.toString)})"
+    | .br tag cond btrue targs bfalse fargs => s!"{tag}:\tbr {cond} {btrue}({String.intercalate ", " (targs.map ToString.toString)}) {bfalse}({String.intercalate ", " (fargs.map ToString.toString)})"
+    | .ret tag value => s!"{tag}:\tret {value}"
+
+instance (priority := high) [ToString γ] [ToString α] : ToString (Terminal Unit γ α) where
+  toString
+    | .jmp _ target args => s!"    jmp {target}({String.intercalate ", " (args.map ToString.toString)})"
+    | .br _ cond btrue targs bfalse fargs => s!"    br {cond} {btrue}({String.intercalate ", " (targs.map ToString.toString)}) {bfalse}({String.intercalate ", " (fargs.map ToString.toString)})"
+    | .ret _ value => s!"    ret {value}"
+
+
 def Terminal.get_branching_args! [BEq γ] : Terminal σ γ α → γ → Nat → List α := fun t b i =>
   let error_no_block (_ : Unit) := panic! s!"{decl_name%}: no such block"
   match t with
@@ -381,6 +394,7 @@ protected def pp_cfg [ToString σ] [ToString γ] [ToString δ] [ToString α] (cf
     else
       store := store.push s!"{i.id}({String.intercalate ", " (i.params.map toString)}):"
     store := store.push s!"{SSA.pp_insts i.insts.toList}"
+    store := store.push s!"{i.terminal}"
   return String.intercalate "\n" store.toList
 
 protected def pp_cfg' [ToString γ] [ToString δ] [ToString α] (cfg : CFG Unit γ δ α) : String := Id.run do
@@ -391,4 +405,5 @@ protected def pp_cfg' [ToString γ] [ToString δ] [ToString α] (cfg : CFG Unit 
     else
       store := store.push s!"{i.id}(${String.intercalate ", " (i.params.map toString)}):"
     store := store.push s!"{SSA.pp_insts' i.insts.toList}"
+    store := store.push s!"{i.terminal}"
   return String.intercalate "\n" store.toList
