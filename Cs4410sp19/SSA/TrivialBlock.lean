@@ -89,6 +89,7 @@ def eliminate_trivial_blocks (cfg : CFG' Unit String VarName Operand) : CFG' Uni
     pred := cfg.config.predecessors
     is_trivial? (t : BasicBlock Unit String VarName Operand) : Option (String × Terminal Unit String Operand) := Id.run do
       let ss := succ[t.id]?.getD {}
+      if !t.insts.isEmpty then return none
       if ss.length != 1 then return none
       match t.terminal with
       | .jmp _ target _ =>

@@ -392,8 +392,8 @@ protected def pp_cfg [ToString σ] [ToString γ] [ToString δ] [ToString α] (cf
     if i.params.isEmpty then
       store := store.push s!"{i.id}:"
     else
-      store := store.push s!"{i.id}({String.intercalate ", " (i.params.map toString)}):"
-    store := store.push s!"{SSA.pp_insts i.insts.toList}"
+      store := store.push s!"{i.id}({String.intercalate ", " (i.params.map (s!"${·}"))}):"
+    store := store.append (i.insts.map Inst.toString)
     store := store.push s!"{i.terminal}"
   return String.intercalate "\n" store.toList
 
@@ -403,7 +403,7 @@ protected def pp_cfg' [ToString γ] [ToString δ] [ToString α] (cfg : CFG Unit 
     if i.params.isEmpty then
       store := store.push s!"{i.id}:"
     else
-      store := store.push s!"{i.id}(${String.intercalate ", " (i.params.map toString)}):"
-    store := store.push s!"{SSA.pp_insts' i.insts.toList}"
+      store := store.push s!"{i.id}({String.intercalate ", " (i.params.map (s!"${·}"))}):"
+    store := store.append (i.insts.map Inst.toString')
     store := store.push s!"{i.terminal}"
   return String.intercalate "\n" store.toList

@@ -31,9 +31,8 @@ def reduce_assign [Hashable γ] [BEq γ] : CFG' σ γ VarName Operand → CFG' �
       let _ ← match x with
         | .assign _ n _ => if substs.contains n then return none else pure ()
         | _ => pure ()
-      let mut x := x
-      for (p, q) in substs' do
-        x := x.replace_src_by (Operand.var p) q
+      let x := substs'.foldl (init := x) fun x (p, q) => x.replace_src_by (Operand.var p) q
       return some x
-    return { b with insts := is, terminal := b.terminal }
+    let terminal := substs'.foldl (init := b.terminal) fun x (p, q) => x.replace_src_by (Operand.var p) q
+    return { b with insts := is, terminal }
   return { name := cfg.name, blocks }
