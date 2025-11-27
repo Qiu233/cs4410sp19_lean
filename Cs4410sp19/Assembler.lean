@@ -22,7 +22,8 @@ inductive Instruction where
   | ret : Instruction
   | add : Arg → Arg → Instruction
   | sub : Arg → Arg → Instruction
-  | mul : Arg → Instruction
+  -- | mul : Arg → Instruction
+  | imul : Arg → Arg → Arg → Instruction
   | shl : Arg → Arg → Instruction
   | shr : Arg → Arg → Instruction
   | sar : Arg → Arg → Instruction
@@ -71,7 +72,8 @@ instance : ToString Instruction where
   | .ret            => s!"\tret"
   | .add dst src    => s!"\tadd {dst}, {src}"
   | .sub dst src    => s!"\tsub {dst}, {src}"
-  | .mul src        => s!"\tmul {src}"
+  -- | .mul src        => s!"\tmul {src}"
+  | .imul dst s1 s2 => s!"\timul {dst}, {s1}, {s2}"
   | .shl dst bits   => s!"\tshl {dst}, {bits}"
   | .shr dst bits   => s!"\tshr {dst}, {bits}"
   | .sar dst bits   => s!"\tsar {dst}, {bits}"

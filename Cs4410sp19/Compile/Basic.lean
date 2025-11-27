@@ -10,9 +10,12 @@ inductive StackSlot where
   | esp : Int → StackSlot
 deriving BEq, Inhabited, Repr
 
-def StackSlot.to_arg : StackSlot → Arg
-  | .esp i => .reg_offset .esp i
-  | .ebp i => .reg_offset .ebp i
+-- def StackSlot.to_arg : StackSlot → Arg
+--   | .esp i => .reg_offset .esp i
+--   | .ebp i => .reg_offset .ebp i
+
+-- def const_false : Arg := .const 0x00000001
+-- def const_true : Arg := .const 0x80000001
 
 section
 
@@ -86,6 +89,3 @@ def add_used_constants (name : String) : CompileFuncM Unit := do
 
 private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruction) → m (Array Instruction) :=
   fun x y => (· ++ ·) <$> x <*> y
-
-def const_false : Arg := .const 0x00000001
-def const_true : Arg := .const 0x80000001

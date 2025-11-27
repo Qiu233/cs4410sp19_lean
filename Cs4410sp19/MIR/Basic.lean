@@ -330,6 +330,10 @@ structure CFG' σ γ α [Hashable γ] [BEq γ] extends CFG σ γ α where
   config : CFG.Config σ γ α := toCFG.config
 deriving Inhabited, Repr
 
+def CFG.unsetTag : CFG σ γ α → CFG Unit γ α := fun cfg =>
+  let blocks := cfg.blocks.map fun b => { id := b.id, insts := b.insts.map fun x => x.setTag (), terminal := b.terminal.setTag () }
+  { name := cfg.name, blocks }
+
 def CFG'.unsetTag [Hashable γ] [BEq γ] : CFG' σ γ α → CFG' Unit γ α := fun cfg =>
   let blocks := cfg.blocks.map fun b => { id := b.id, insts := b.insts.map fun x => x.setTag (), terminal := b.terminal.setTag () }
   { name := cfg.name, blocks }

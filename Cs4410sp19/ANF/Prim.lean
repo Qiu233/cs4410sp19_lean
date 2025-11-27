@@ -1,6 +1,7 @@
 import Cs4410sp19.Basic
 import Cs4410sp19.Compile.Basic
 import Cs4410sp19.ANF.Basic
+import Cs4410sp19.Assembler
 
 namespace Cs4410sp19
 
@@ -104,194 +105,194 @@ where
       let (imm, setup) ← helpI e
       return (CExpr.imm imm, setup)
 
-def ImmExpr.arg (e : ImmExpr α) : CompileFuncM Arg := do
-  match e with
-  | .num _ n =>
-    if n > 1073741823 || n < -1073741824 then
-      throw s!"Integer overflow: {n}"
-    return .const (n <<< 1)
-  | .bool _ .false => return const_false
-  | .bool _ .true => return const_true
-  | .id _ name =>
-    let slot ← get_slot! name
-    return slot.to_arg
+-- def ImmExpr.arg (e : ImmExpr α) : CompileFuncM Arg := do
+--   match e with
+--   | .num _ n =>
+--     if n > 1073741823 || n < -1073741824 then
+--       throw s!"Integer overflow: {n}"
+--     return .const (n <<< 1)
+--   | .bool _ .false => return const_false
+--   | .bool _ .true => return const_true
+--   | .id _ name =>
+--     let slot ← get_slot! name
+--     return slot.to_arg
 
-private def eax := Arg.reg (.eax)
+-- private def eax := Arg.reg (.eax)
 
-private def load_number_checked (src : Arg) : Array Instruction :=
-  #[ .mov eax src, .test eax (.const 0x00000001), .jnz "error_non_number" ]
+-- private def load_number_checked (src : Arg) : Array Instruction :=
+--   #[ .mov eax src, .test eax (.const 0x00000001), .jnz "error_non_number" ]
 
-private def load_bool_checked (src : Arg) : Array Instruction :=
-  #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
+-- private def load_bool_checked (src : Arg) : Array Instruction :=
+--   #[ .mov eax src, .test eax (.const 0x00000001), .jz "error_non_bool" ]
 
-private def load_tuple_checked (src : Arg) : Array Instruction :=
-  #[ .mov eax src, .and eax (.const 0x7), .cmp eax (.const 1), .mov eax src, .jnz "error_non_tuple" ]
+-- private def load_tuple_checked (src : Arg) : Array Instruction :=
+--   #[ .mov eax src, .and eax (.const 0x7), .cmp eax (.const 1), .mov eax src, .jnz "error_non_tuple" ]
 
-private def load_tuple_address_checked (src : Arg) : Array Instruction :=
-  load_tuple_checked src ++ #[ .sub eax (.const 1) ]
+-- private def load_tuple_address_checked (src : Arg) : Array Instruction :=
+--   load_tuple_checked src ++ #[ .sub eax (.const 1) ]
 
-partial def compile_imm (e : ImmExpr α) : CompileFuncM (Array Instruction) := do
-  match e with
-  | .num _ n =>
-    let arg ← ImmExpr.arg (.num () n)
-    return load_number_checked arg
-  | .bool _ x =>
-    let arg ← ImmExpr.arg (.bool () x)
-    return #[.mov eax arg]
-  | .id _ name =>
-    let arg ← ImmExpr.arg (.id () name)
-    return #[.mov eax arg]
+-- partial def compile_imm (e : ImmExpr α) : CompileFuncM (Array Instruction) := do
+--   match e with
+--   | .num _ n =>
+--     let arg ← ImmExpr.arg (.num () n)
+--     return load_number_checked arg
+--   | .bool _ x =>
+--     let arg ← ImmExpr.arg (.bool () x)
+--     return #[.mov eax arg]
+--   | .id _ name =>
+--     let arg ← ImmExpr.arg (.id () name)
+--     return #[.mov eax arg]
 
-mutual
+-- mutual
 
-partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
-  match e with
-  | .imm x => compile_imm x
-  | .prim1 _ .neg x =>
-    let x ← x.arg
-    return load_number_checked x ++ #[ .mov eax (.const 0), .sub eax x ]
-  | .prim1 _ .not x =>
-    let x ← x.arg
-    return load_bool_checked x ++ #[ .xor eax (.const 0x8000_0000) ]
-  | .prim1 _ .fst x =>
-    let x ← x.arg
-    return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 1) ]
-  | .prim1 _ .snd x =>
-    let x ← x.arg
-    return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 2) ]
-  | .prim2 _ .plus x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .add eax rhs ]
-  | .prim2 _ .minus x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .sub eax rhs ]
-  | .prim2 _ .times x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[ .mul rhs, .sar eax (.const 1) ]
-  | .prim2 _ .land x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .and eax rhs ]
-  | .prim2 _ .lor x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .or eax rhs ]
-  | .prim2 _ .lt x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_less ← gen_label "less"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
-      .cmp eax rhs,
-      .mov eax const_true,
-      .jl label_less,
-      .mov eax const_false,
-      .label label_less ]
-  | .prim2 _ .le x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_le ← gen_label "less_eq"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
-      .cmp eax rhs,
-      .mov eax const_true,
-      .jle label_le,
-      .mov eax const_false,
-      .label label_le ]
-  | .prim2 _ .gt x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_greater ← gen_label "greater"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
-      .cmp eax rhs,
-      .mov eax const_true,
-      .jg label_greater,
-      .mov eax const_false,
-      .label label_greater ]
-  | .prim2 _ .ge x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_ge ← gen_label "greater_eq"
-    return load_number_checked rhs ++ load_number_checked lhs ++ #[
-      .cmp eax rhs,
-      .mov eax const_true,
-      .jge label_ge,
-      .mov eax const_false,
-      .label label_ge ]
-  | .prim2 _ .eq x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_eq ← gen_label "equal"
-    return #[
-      .mov eax lhs,
-      .cmp eax rhs,
-      .mov eax const_true,
-      .je label_eq,
-      .mov eax const_false,
-      .label label_eq ]
-  | .prim2 _ .ne x y =>
-    let lhs ← x.arg
-    let rhs ← y.arg
-    let label_ne ← gen_label "not_equal"
-    return #[
-      .mov eax lhs,
-      .cmp eax rhs,
-      .mov eax const_false,
-      .je label_ne,
-      .mov eax const_true,
-      .label label_ne ]
-  | .ite _ cond bp bn =>
-    let label_else ← gen_label "if_false"
-    let label_done ← gen_label "done"
-    let c ← cond.arg
-    let ps ← compile_aexpr bp tail_pos
-    let ns ← compile_aexpr bn tail_pos
-    return #[ .mov eax c, .cmp eax const_false, .je label_else ] ++ ps ++ #[ .jmp label_done, .label label_else ] ++ ns ++ #[ .label label_done ]
-  | .call _ name args =>
-    let avai ← Env.functions <$> getThe Env
-    unless avai.contains name do
-      throw s!"function \"{name}\" is undefined"
-    add_used_constants name
-    let asm_name := name.replace "-" "_"
-    let n := args.length
-    let mut ts := #[]
-    for imm in args do
-      ts := ts.push (← imm.arg)
-    let current_decl? ← Context.current_decl? <$> read
-    if tail_pos && (Prod.fst <$> current_decl?).isEqSome name then -- calling self
-      let rs := ts.zipIdx |>.flatMap (fun (t, i) => #[ .mov eax t, .mov (.reg_offset .ebp (i + 2)) (.reg .eax) ])
-      return rs ++ #[ .jmp (current_decl?.get!.snd) ]
-    else
-      let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
-      return rs ++ #[ .call asm_name, .add (.reg .esp) (.const (4 * n)) ]
-  | .tuple _ xs =>
-    let n := xs.length
-    let ts : Array Instruction ← xs.toArray.zipIdx |>.flatMapM fun (x, i) => do
-      let arg ← x.arg
-      return #[
-        .mov eax arg,
-        .mov (.reg_offset .esi (i + 1)) eax, ]
-    return #[ .mov (.reg_offset .esi 0) (.const n) ] ++ ts ++ #[
-      .mov eax (.reg .esi),
-      .add eax (.const 1),
-      .add (.reg .esi) (.const (4 * ((if 2 ∣ n then n + 1 else n) + 1))) ]
-  | .get_item _ e i n =>
-    let arg ← e.arg
-    return load_tuple_address_checked arg ++ #[
-      .cmp (.reg_offset .eax 0) (.const n),
-      .jnz "error_tuple_size_mismatch",
-      .mov eax (.reg_offset .eax (i + 1)) ]
+-- partial def compile_cexpr (e : CExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
+--   match e with
+--   | .imm x => compile_imm x
+--   | .prim1 _ .neg x =>
+--     let x ← x.arg
+--     return load_number_checked x ++ #[ .mov eax (.const 0), .sub eax x ]
+--   | .prim1 _ .not x =>
+--     let x ← x.arg
+--     return load_bool_checked x ++ #[ .xor eax (.const 0x8000_0000) ]
+--   | .prim1 _ .fst x =>
+--     let x ← x.arg
+--     return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 1) ]
+--   | .prim1 _ .snd x =>
+--     let x ← x.arg
+--     return load_tuple_address_checked x ++ #[ .mov eax (.reg_offset .eax 2) ]
+--   | .prim2 _ .plus x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .add eax rhs ]
+--   | .prim2 _ .minus x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .sub eax rhs ]
+--   | .prim2 _ .times x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[ .mul rhs, .sar eax (.const 1) ]
+--   | .prim2 _ .land x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .and eax rhs ]
+--   | .prim2 _ .lor x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     return load_bool_checked rhs ++ load_bool_checked lhs ++ #[ .or eax rhs ]
+--   | .prim2 _ .lt x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_less ← gen_label "less"
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[
+--       .cmp eax rhs,
+--       .mov eax const_true,
+--       .jl label_less,
+--       .mov eax const_false,
+--       .label label_less ]
+--   | .prim2 _ .le x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_le ← gen_label "less_eq"
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[
+--       .cmp eax rhs,
+--       .mov eax const_true,
+--       .jle label_le,
+--       .mov eax const_false,
+--       .label label_le ]
+--   | .prim2 _ .gt x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_greater ← gen_label "greater"
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[
+--       .cmp eax rhs,
+--       .mov eax const_true,
+--       .jg label_greater,
+--       .mov eax const_false,
+--       .label label_greater ]
+--   | .prim2 _ .ge x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_ge ← gen_label "greater_eq"
+--     return load_number_checked rhs ++ load_number_checked lhs ++ #[
+--       .cmp eax rhs,
+--       .mov eax const_true,
+--       .jge label_ge,
+--       .mov eax const_false,
+--       .label label_ge ]
+--   | .prim2 _ .eq x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_eq ← gen_label "equal"
+--     return #[
+--       .mov eax lhs,
+--       .cmp eax rhs,
+--       .mov eax const_true,
+--       .je label_eq,
+--       .mov eax const_false,
+--       .label label_eq ]
+--   | .prim2 _ .ne x y =>
+--     let lhs ← x.arg
+--     let rhs ← y.arg
+--     let label_ne ← gen_label "not_equal"
+--     return #[
+--       .mov eax lhs,
+--       .cmp eax rhs,
+--       .mov eax const_false,
+--       .je label_ne,
+--       .mov eax const_true,
+--       .label label_ne ]
+--   | .ite _ cond bp bn =>
+--     let label_else ← gen_label "if_false"
+--     let label_done ← gen_label "done"
+--     let c ← cond.arg
+--     let ps ← compile_aexpr bp tail_pos
+--     let ns ← compile_aexpr bn tail_pos
+--     return #[ .mov eax c, .cmp eax const_false, .je label_else ] ++ ps ++ #[ .jmp label_done, .label label_else ] ++ ns ++ #[ .label label_done ]
+--   | .call _ name args =>
+--     let avai ← Env.functions <$> getThe Env
+--     unless avai.contains name do
+--       throw s!"function \"{name}\" is undefined"
+--     add_used_constants name
+--     let asm_name := name.replace "-" "_"
+--     let n := args.length
+--     let mut ts := #[]
+--     for imm in args do
+--       ts := ts.push (← imm.arg)
+--     let current_decl? ← Context.current_decl? <$> read
+--     if tail_pos && (Prod.fst <$> current_decl?).isEqSome name then -- calling self
+--       let rs := ts.zipIdx |>.flatMap (fun (t, i) => #[ .mov eax t, .mov (.reg_offset .ebp (i + 2)) (.reg .eax) ])
+--       return rs ++ #[ .jmp (current_decl?.get!.snd) ]
+--     else
+--       let rs := ts.reverse.flatMap (fun t => #[ .mov eax t, .push eax ])
+--       return rs ++ #[ .call asm_name, .add (.reg .esp) (.const (4 * n)) ]
+--   | .tuple _ xs =>
+--     let n := xs.length
+--     let ts : Array Instruction ← xs.toArray.zipIdx |>.flatMapM fun (x, i) => do
+--       let arg ← x.arg
+--       return #[
+--         .mov eax arg,
+--         .mov (.reg_offset .esi (i + 1)) eax, ]
+--     return #[ .mov (.reg_offset .esi 0) (.const n) ] ++ ts ++ #[
+--       .mov eax (.reg .esi),
+--       .add eax (.const 1),
+--       .add (.reg .esi) (.const (4 * ((if 2 ∣ n then n + 1 else n) + 1))) ]
+--   | .get_item _ e i n =>
+--     let arg ← e.arg
+--     return load_tuple_address_checked arg ++ #[
+--       .cmp (.reg_offset .eax 0) (.const n),
+--       .jnz "error_tuple_size_mismatch",
+--       .mov eax (.reg_offset .eax (i + 1)) ]
 
 
-partial def compile_aexpr (e : AExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
-  match e with
-  | .cexpr c => compile_cexpr c tail_pos
-  | .let_in _ name value cont =>
-    (· ++ ·) <$> compile_cexpr value false <*> with_new_var name fun slot =>
-      (#[ .mov (slot.to_arg) eax ] ++ ·) <$> compile_aexpr cont tail_pos
+-- partial def compile_aexpr (e : AExpr α) (tail_pos : Bool) : CompileFuncM (Array Instruction) := do
+--   match e with
+--   | .cexpr c => compile_cexpr c tail_pos
+--   | .let_in _ name value cont =>
+--     (· ++ ·) <$> compile_cexpr value false <*> with_new_var name fun slot =>
+--       (#[ .mov (slot.to_arg) eax ] ++ ·) <$> compile_aexpr cont tail_pos
 
-end
+-- end
 
 variable [Monad m] [MonadNameGen m]
 in section
@@ -314,48 +315,48 @@ def anf_prog : Program α → m (AProgram Unit) := fun ⟨_, decls, e⟩ => do
 
 end
 
-def func_prolog (n : Nat) : Array Instruction :=
-  #[ .push (.reg .ebp), .mov (.reg .ebp) (.reg .esp), .sub (.reg .esp) (.const (4 * n)) ]
+-- def func_prolog (n : Nat) : Array Instruction :=
+--   #[ .push (.reg .ebp), .mov (.reg .ebp) (.reg .esp), .sub (.reg .esp) (.const (4 * n)) ]
 
-def func_epilog : Array Instruction :=
-  #[ .mov (.reg .esp) (.reg .ebp), .pop (.reg .ebp), .ret ]
+-- def func_epilog : Array Instruction :=
+--   #[ .mov (.reg .esp) (.reg .ebp), .pop (.reg .ebp), .ret ]
 
-def compile_anfed_function_def (e : AFuncDef α) : CompileM (Array Instruction) := do
-  let ⟨name, ids, body⟩ := e
-  -- let env ← get
-  -- if env.functions.contains name then
-  --   throw s!"function \"{name}\" already exists"
-  if ids.eraseDups.length != ids.length then
-    throw s!"arguments {ids} contain duplicates"
-  -- modify fun env => (let functions := env.functions.insert name; {env with functions})
-  let do_compile := with_args ids.toArray fun _ => compile_aexpr body true
-  let label_body ← gen_label s!"{name.replace "-" "_"}_body"
-  let (result, s) ← do_compile.run { current_decl? := (name, label_body) } {}
-  let a : Array Instruction :=
-    func_prolog s.max_stack_slots
-    ++ #[ .label label_body ]
-    ++ result ++
-    func_epilog
-  return a
+-- def compile_anfed_function_def (e : AFuncDef α) : CompileM (Array Instruction) := do
+--   let ⟨name, ids, body⟩ := e
+--   -- let env ← get
+--   -- if env.functions.contains name then
+--   --   throw s!"function \"{name}\" already exists"
+--   if ids.eraseDups.length != ids.length then
+--     throw s!"arguments {ids} contain duplicates"
+--   -- modify fun env => (let functions := env.functions.insert name; {env with functions})
+--   let do_compile := with_args ids.toArray fun _ => compile_aexpr body true
+--   let label_body ← gen_label s!"{name.replace "-" "_"}_body"
+--   let (result, s) ← do_compile.run { current_decl? := (name, label_body) } {}
+--   let a : Array Instruction :=
+--     func_prolog s.max_stack_slots
+--     ++ #[ .label label_body ]
+--     ++ result ++
+--     func_epilog
+--   return a
 
-def compile_anfed_decl (e : ADecl α) : CompileM (Array Instruction) := do
-  match e with
-  | .function _ f => compile_anfed_function_def f
+-- def compile_anfed_decl (e : ADecl α) : CompileM (Array Instruction) := do
+--   match e with
+--   | .function _ f => compile_anfed_function_def f
 
-def compile_anfed_mutual_decl (e : AMutualDecl α) : CompileM (Array (String × (Array Instruction))) := do
-  let mut data := #[]
-  for d in e.decls do
-    modify fun env => {env with functions := env.functions.insert d.name}
-  for d in e.decls do
-    let code ← compile_anfed_decl d
-    data := data.push (d.name.replace "-" "_", code)
-  return data
+-- def compile_anfed_mutual_decl (e : AMutualDecl α) : CompileM (Array (String × (Array Instruction))) := do
+--   let mut data := #[]
+--   for d in e.decls do
+--     modify fun env => {env with functions := env.functions.insert d.name}
+--   for d in e.decls do
+--     let code ← compile_anfed_decl d
+--     data := data.push (d.name.replace "-" "_", code)
+--   return data
 
-def compile_anfed_prog_core (e : AProgram α) : CompileM (Array (String × (Array Instruction)) × (Array Instruction)) := do
-  let mut store := #[]
-  for d in e.decls do
-    let code ← compile_anfed_mutual_decl d
-    store := store.append code
-  let (result, s) ← compile_aexpr e.exe_code true |>.run { current_decl? := none } {}
-  let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
-  return (store, result)
+-- def compile_anfed_prog_core (e : AProgram α) : CompileM (Array (String × (Array Instruction)) × (Array Instruction)) := do
+--   let mut store := #[]
+--   for d in e.decls do
+--     let code ← compile_anfed_mutual_decl d
+--     store := store.append code
+--   let (result, s) ← compile_aexpr e.exe_code true |>.run { current_decl? := none } {}
+--   let result := func_prolog s.max_stack_slots ++ result ++ func_epilog
+--   return (store, result)

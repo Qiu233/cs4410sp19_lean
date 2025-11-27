@@ -198,7 +198,7 @@ def collect_reg_constraints (cfg : CFG' InstMData String AbsLoc) : Std.HashMap D
     for block in cfg.blocks do
       for inst in block.insts do
         match inst with
-        | .cmp tag lhs _ =>
+        | .cmp tag lhs _ | .test tag lhs _ | .push tag lhs | .pop tag lhs =>
             match lhs with
             | .vreg v =>
                 let key := DefUse.vreg v

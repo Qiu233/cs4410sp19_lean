@@ -25,15 +25,15 @@ script «.» args do
   let obj_file : System.FilePath := "ws" / s!"{name}.o"
   let run_file : System.FilePath := "ws" / s!"{name}.run"
   let a ← exe `cs4410sp19 #[src_file.toString, "-o", asm_file.toString]
-  -- unless a == 0 do
-  --   throw <| IO.userError s!"failed to compile {src_file}"
-  --   return a
-  -- let b ← IO.Process.run { cmd := "nasm", args := #[ "-f", "elf32", "-o", obj_file.toString, asm_file.toString ] }
-  -- IO.print s!"{b}"
-  -- let b ← IO.Process.run { cmd := "clang", args := #[ "-m32", "-o", run_file.toString, "wrapper/main.c", obj_file.toString ] }
-  -- IO.print s!"{b}"
-  -- let b ← IO.Process.run { cmd := run_file.toString }
-  -- IO.println s!"{b}"
+  unless a == 0 do
+    throw <| IO.userError s!"failed to compile {src_file}"
+    return a
+  let b ← IO.Process.run { cmd := "nasm", args := #[ "-f", "elf32", "-o", obj_file.toString, asm_file.toString ] }
+  IO.print s!"{b}"
+  let b ← IO.Process.run { cmd := "clang", args := #[ "-m32", "-o", run_file.toString, "wrapper/main.c", obj_file.toString ] }
+  IO.print s!"{b}"
+  let b ← IO.Process.run { cmd := run_file.toString }
+  IO.println s!"{b}"
   return 0
 
 open Lean in
