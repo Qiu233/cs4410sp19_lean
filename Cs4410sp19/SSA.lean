@@ -76,36 +76,36 @@ def src := "def f(x, y):
 
 -- open RegAlloc in
 
-#eval do
-  let e ← match (parse_function_decl <* Std.Internal.Parsec.String.ws <* Std.Internal.Parsec.eof).run src with
-    | .error e => println! s!"failed to parse expression due to: {e}"; return
-    | .ok r => pure r
-  let s := ContT.run (m := M) (do
-    let a ← anf_decl e.decls[0]!
-    let t := (match a with | ADecl.function _ f => f)
-    let r ← liftM <| cfg_of_function_def t
-    let r : CFG' Unit String VarName Operand := { r with }
-    return r
-    ) (fun n => pure n) |>.run {} |>.run' {}
-  let (r, _) := s.run {}
-  println! "converted:"
-  println! "{SSA.pp_cfg' r.toCFG}\n"
+-- #eval do
+--   let e ← match (parse_function_decl <* Std.Internal.Parsec.String.ws <* Std.Internal.Parsec.eof).run src with
+--     | .error e => println! s!"failed to parse expression due to: {e}"; return
+--     | .ok r => pure r
+--   let s := ContT.run (m := M) (do
+--     let a ← anf_decl e.decls[0]!
+--     let t := (match a with | ADecl.function _ f => f)
+--     let r ← liftM <| cfg_of_function_def t
+--     let r : CFG' Unit String VarName Operand := { r with }
+--     return r
+--     ) (fun n => pure n) |>.run {} |>.run' {}
+--   let (r, _) := s.run {}
+--   println! "converted:"
+--   println! "{SSA.pp_cfg' r.toCFG}\n"
 
-  let r := reduce_assign r
-  println! "unary assignment reduced:"
-  println! "{SSA.pp_cfg' r.toCFG}\n"
+--   let r := reduce_assign r
+--   println! "unary assignment reduced:"
+--   println! "{SSA.pp_cfg' r.toCFG}\n"
 
-  let r := eliminate_trivial_blocks r
-  println! "trivial blocks reduced:"
-  println! "{SSA.pp_cfg' r.toCFG}\n"
+--   let r := eliminate_trivial_blocks r
+--   println! "trivial blocks reduced:"
+--   println! "{SSA.pp_cfg' r.toCFG}\n"
 
-  let (r, s) := FreshM.run (normalize_vars "x" "a" r) {}
-  println! "variables normalized:"
-  println! "{SSA.pp_cfg' r.toCFG}\n"
+--   let (r, s) := FreshM.run (normalize_vars "x" "a" r) {}
+--   println! "variables normalized:"
+--   println! "{SSA.pp_cfg' r.toCFG}\n"
 
-  let (r, s) := FreshM.run (eliminate_block_args r) s
-  println! "block args eliminated:"
-  println! "{SSA.pp_cfg' r.toCFG}\n"
+--   let (r, s) := FreshM.run (eliminate_block_args r) s
+--   println! "block args eliminated:"
+--   println! "{SSA.pp_cfg' r.toCFG}\n"
 
   -- let es := edges r
   -- println! "edges = {es}"

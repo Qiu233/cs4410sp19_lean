@@ -125,6 +125,11 @@ instance : ToString InstMData where
   toString x :=
     s!"line {x.lineno}, used: [{String.intercalate ", " (x.used.toList.map toString)}], defs: [{String.intercalate ", " (x.defs.toList.map toString)}]"
 
+def AbsLoc.toDefUse? : AbsLoc → Option DefUse
+  | .vreg v => some (DefUse.vreg v)
+  | .preg r => some (DefUse.greg r)
+  | _ => none
+
 def compute_mdata (cfg : CFG Unit String AbsLoc) : CFG InstMData String AbsLoc := Id.run do
   let cfg := annotate_lineno cfg
   let blocks := cfg.blocks.map fun b =>
