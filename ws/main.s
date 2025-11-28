@@ -33,27 +33,31 @@ g:
   push ebp
   mov ebp, esp
   sub esp, 12
-  mov dword [ebp + -8], dword [ebp + 8]
-  cmp dword [ebp + -8], 2
+  mov eax, dword [ebp + 8]
+  cmp eax, 2
   mov dword [ebp + -4], 2147483649
+  mov dword [ebp + -8], eax
   jle .skip.0
 .side.0:
   mov dword [ebp + -4], 1
   jmp .skip.0
 .skip.0:
-  cmp dword [ebp + -4], 2147483649
+  mov ebx, dword [ebp + -4]
+  cmp ebx, 2147483649
   jz .split_.entry_.join.0_0.0
 .skip.1:
   jmp .right.0
 .right.0:
-  mov ebx, dword [ebp + -8]
+  mov eax, dword [ebp + -8]
+  mov ebx, eax
   sub ebx, 2
   push ebx
   call g
-  mov ecx, eax
+  mov ebx, eax
   add esp, 4
   mov eax, dword [ebp + -8]
-  imul eax, ecx
+  mov eax, eax
+  imul eax, ebx
   sar eax, 1
   mov dword [ebp + -12], eax
   jmp .join.0
@@ -62,6 +66,7 @@ g:
   jmp .join.0
 .join.0:
   mov eax, dword [ebp + -12]
+  mov eax, eax
   mov esp, ebp
   pop ebp
   ret
@@ -77,9 +82,9 @@ our_code_starts_here:
   mov ebp, esp
   push 10
   call g
-  mov ecx, eax
+  mov ebx, eax
   add esp, 4
-  mov eax, ecx
+  mov eax, ebx
   mov esp, ebp
   pop ebp
   ret
