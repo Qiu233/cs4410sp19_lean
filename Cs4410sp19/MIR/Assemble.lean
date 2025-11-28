@@ -185,9 +185,10 @@ private def assembleInst (ctx : Context) :
       let _ := ensureNotBothMem "xor" dst y
       #[Assembler.Instruction.xor (toArg ctx dst) (toArg ctx y)]
   | .mul _ dst x y =>
+      let _ := ensureTwoAddr "imul" dst x
       let _ := ensureDestNotImm "imul" dst
       let _ := ensureMulDestReg dst
-      #[Assembler.Instruction.imul (toArg ctx dst) (toArg ctx x) (toArg ctx y)]
+      #[Assembler.Instruction.imul (toArg ctx dst) (toArg ctx y)]
   | .push _ src =>
       #[Assembler.Instruction.push (toArg ctx src)]
   | .pop _ dst =>

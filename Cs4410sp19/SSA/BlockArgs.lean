@@ -65,9 +65,10 @@ def eliminate_block_args [Monad m] [MonadNameGen m] (cfg : CFG' Unit String VarN
       continue
     let vs ← B.params.mapM fun n => genvar s!"{B.id}.{n.name}"
     assert! B.params.length == vs.length
-    let subst (i : Inst Unit String VarName Operand) := i.instantiate_params (B.params.zipWith (fun p v => (p, .var v)) vs)
+    let substPairs := (B.params.zipWith (fun p v => (p, .var v)) vs)
+    let subst (i : Inst Unit String VarName Operand) := i.instantiate_params substPairs
     let B'_insts := B.insts.map subst
-    let B' : BasicBlock Unit String VarName Operand := { id := B.id, params := [], insts := B'_insts, terminal := B.terminal }
+    let B' : BasicBlock Unit String VarName Operand := { id := B.id, params := [], insts := B'_insts, terminal := B.terminal.instantiate_params substPairs }
     blocks_rev := blocks_rev.push B'
     for ⟨i, P_id, _, _⟩ in pred[B.id]!.reverse do
       patches := patches.alter P_id fun

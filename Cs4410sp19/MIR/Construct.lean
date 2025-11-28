@@ -264,11 +264,7 @@ def form (cfg : MIR.CFG Unit String MIR.AbsLoc) : FreshM (MIR.CFG Unit String MI
         let c ← genvreg "c"
         return #[Inst.mov () c x, .test () c y]
       | .mul _ d x y => -- we will use imul
-        if (d matches .vreg ..) then
-          if (x matches .vreg ..) then
-            return #[inst]
-          else if (y matches .vreg ..) then
-            return #[.mul () d y x]
+        if (d matches .vreg ..) && d == x then return #[inst]
         return #[Inst.mov () d x, .mul () d d y]
       | _ => return #[inst]
     return { id := b.id, insts, terminal := b.terminal : BasicBlock Unit String MIR.AbsLoc }

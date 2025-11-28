@@ -95,13 +95,13 @@ private def computeLiveness (cfg : CFG' InstMData String AbsLoc) (v : DefUse) : 
           if succs.isEmpty then
             false
           else
-            succs.any fun s => (liveIn[s]? ).getD false
+            succs.any fun s => liveIn[s]?.getD false
         let inVal := blockLiveIn v block outVal
-        let oldOut := (liveOut[block.id]? ).getD false
+        let oldOut := liveOut[block.id]?.getD false
         if outVal ≠ oldOut then
           liveOut := liveOut.insert block.id outVal
           changed := true
-        let oldIn := (liveIn[block.id]? ).getD false
+        let oldIn := liveIn[block.id]?.getD false
         if inVal ≠ oldIn then
           liveIn := liveIn.insert block.id inVal
           changed := true
@@ -118,10 +118,10 @@ private def getLivenessMaps (cfg : CFG' InstMData String AbsLoc) (v : DefUse) :
       pure maps
 
 private def liveInBlock (maps : LivenessMaps) (b : String) : Bool :=
-  (maps.liveIn[b]? ).getD false
+  maps.liveIn[b]?.getD false
 
 private def liveOutBlock (maps : LivenessMaps) (b : String) : Bool :=
-  (maps.liveOut[b]? ).getD false
+  maps.liveOut[b]?.getD false
 
 mutual
   partial def propagateInterval
@@ -198,13 +198,14 @@ def collect_reg_constraints (cfg : CFG' InstMData String AbsLoc) : Std.HashMap D
     for block in cfg.blocks do
       for inst in block.insts do
         match inst with
-        | .cmp tag lhs _ | .test tag lhs _ | .push tag lhs | .pop tag lhs =>
-            match lhs with
-            | .vreg v =>
-                let key := DefUse.vreg v
-                let positions := (req[key]? ).getD []
-                req := req.insert key ((tag.lineno * 2) :: positions)
-            | _ => ()
+        | .cmp tag (.vreg v) _ | .test tag (.vreg v) _ | .push tag (.vreg v) =>
+          let key := DefUse.vreg v
+          let positions := req[key]?.getD []
+          req := req.insert key ((tag.lineno * 2) :: positions)
+        | .pop tag (.vreg v) | .mov tag (.vreg v) (.arg _) =>
+          let key := DefUse.vreg v
+          let positions := req[key]?.getD []
+          req := req.insert key ((tag.lineno * 2 + 1) :: positions)
         | _ => ()
     return req
 
@@ -309,7 +310,7 @@ private def ensureFrame (varLoc : Std.HashMap DefUse AbsLoc) (d : DefUse) (nextS
 private def spillIfAllowed (regRequired : Std.HashMap DefUse (List Nat))
     (varLoc : Std.HashMap DefUse AbsLoc) (d : DefUse) (nextSlot : Nat) :
     Std.HashMap DefUse AbsLoc × Nat :=
-  if ((regRequired[d]? ).getD []).isEmpty then
+  if (regRequired[d]?.getD []).isEmpty then
     let (_, varLoc', nextSlot') := ensureFrame varLoc d nextSlot
     (varLoc', nextSlot')
   else
@@ -317,7 +318,7 @@ private def spillIfAllowed (regRequired : Std.HashMap DefUse (List Nat))
 
 private def extractRequired (req : Std.HashMap DefUse (List Nat)) (d : DefUse) (start stop : Nat) :
     Bool × Std.HashMap DefUse (List Nat) := Id.run do
-  let positions := (req[d]? ).getD []
+  let positions := req[d]?.getD []
   let rec loop
     | [], found, rest => (found, rest)
     | x :: xs, found, rest =>
@@ -370,7 +371,7 @@ def consumeRequirement (d : DefUse) (start stop : Nat) : RAM Bool := do
 
 def hasFutureRequirement (d : DefUse) : RAM Bool := do
   let st ← get
-  pure !(((st.regRequired[d]? ).getD []).isEmpty)
+  pure !((st.regRequired[d]?.getD []).isEmpty)
 
 def spillCurrent (d : DefUse) : RAM Unit := do
   let st ← get
@@ -458,6 +459,8 @@ def processNew (seg : LiveSegment) (pinned : Bool) : RAM Unit := do
 def processSegment (seg : LiveSegment) : RAM Unit := do
   expireAt seg.start
   let needsReg ← consumeRequirement seg.owner.d seg.start seg.stop
+  if seg.owner.d == .vreg ⟨"x.0"⟩ then
+    dbg_trace "x.0: {needsReg}"
   let pinned :=
     match seg.owner.d with
     | .greg _ => true
@@ -468,11 +471,7 @@ def processSegment (seg : LiveSegment) : RAM Unit := do
   else
     processNew seg pinned
 
-partial def processSegments : List LiveSegment → RAM Unit
-  | [] => pure ()
-  | seg :: rest => do
-      processSegment seg
-      processSegments rest
+partial def processSegments : List LiveSegment → RAM Unit := fun ss => ss.forM processSegment
 
 def linear_scan_register_allocation (cfg : CFG' InstMData String AbsLoc)
     (intervals : Std.HashMap ValDef Interval) : CFG' InstMData String AbsLoc := Id.run do
@@ -486,7 +485,7 @@ def linear_scan_register_allocation (cfg : CFG' InstMData String AbsLoc)
       segments := segments.push { owner := vd, start := seg.start_inc, stop := seg.end_inc }
   let ordered := segments.toList.mergeSort LiveSegment.lt
   let initState : RAState :=
-    { freeRegs := availableRegs, active := [], varLoc := {}, nextSlot := 0, regRequired := regRequired }
+    { freeRegs := availableRegs, active := [], varLoc := {}, nextSlot := 0, regRequired }
   let (_, finalState) := processSegments ordered |>.run initState
   let rewriteLoc := fun
     | AbsLoc.vreg v =>

@@ -23,7 +23,7 @@ inductive Instruction where
   | add : Arg → Arg → Instruction
   | sub : Arg → Arg → Instruction
   -- | mul : Arg → Instruction
-  | imul : Arg → Arg → Arg → Instruction
+  | imul : Arg → Arg → Instruction
   | shl : Arg → Arg → Instruction
   | shr : Arg → Arg → Instruction
   | sar : Arg → Arg → Instruction
@@ -65,32 +65,32 @@ instance : ToString Arg where
 
 instance : ToString Instruction where
   toString
-  | .mov dst src    => s!"\tmov {dst}, {src}"
-  | .push src       => s!"\tpush {src}"
-  | .pop src        => s!"\tpop {src}"
-  | .call dst       => s!"\tcall {dst}"
-  | .ret            => s!"\tret"
-  | .add dst src    => s!"\tadd {dst}, {src}"
-  | .sub dst src    => s!"\tsub {dst}, {src}"
-  -- | .mul src        => s!"\tmul {src}"
-  | .imul dst s1 s2 => s!"\timul {dst}, {s1}, {s2}"
-  | .shl dst bits   => s!"\tshl {dst}, {bits}"
-  | .shr dst bits   => s!"\tshr {dst}, {bits}"
-  | .sar dst bits   => s!"\tsar {dst}, {bits}"
-  | .and dst src    => s!"\tand {dst}, {src}"
-  | .or dst src     => s!"\tor {dst}, {src}"
-  | .xor dst src    => s!"\txor {dst}, {src}"
+  | .mov dst src    => s!"  mov {dst}, {src}"
+  | .push src       => s!"  push {src}"
+  | .pop src        => s!"  pop {src}"
+  | .call dst       => s!"  call {dst}"
+  | .ret            => s!"  ret"
+  | .add dst src    => s!"  add {dst}, {src}"
+  | .sub dst src    => s!"  sub {dst}, {src}"
+  -- | .mul src        => s!"  mul {src}"
+  | .imul dst src => s!"  imul {dst}, {src}"
+  | .shl dst bits   => s!"  shl {dst}, {bits}"
+  | .shr dst bits   => s!"  shr {dst}, {bits}"
+  | .sar dst bits   => s!"  sar {dst}, {bits}"
+  | .and dst src    => s!"  and {dst}, {src}"
+  | .or dst src     => s!"  or {dst}, {src}"
+  | .xor dst src    => s!"  xor {dst}, {src}"
   | .label name     => s!"{name}:"
-  | .cmp x y        => s!"\tcmp {x}, {y}"
-  | .test x y       => s!"\ttest {x}, {y}"
-  | .jmp name       => s!"\tjmp {name}"
-  | .je name        => s!"\tje {name}"
-  | .jl name        => s!"\tjl {name}"
-  | .jle name       => s!"\tjle {name}"
-  | .jg name        => s!"\tjg {name}"
-  | .jge name       => s!"\tjge {name}"
-  | .jz name        => s!"\tjz {name}"
-  | .jnz name       => s!"\tjnz {name}"
+  | .cmp x y        => s!"  cmp {x}, {y}"
+  | .test x y       => s!"  test {x}, {y}"
+  | .jmp name       => s!"  jmp {name}"
+  | .je name        => s!"  je {name}"
+  | .jl name        => s!"  jl {name}"
+  | .jle name       => s!"  jle {name}"
+  | .jg name        => s!"  jg {name}"
+  | .jge name       => s!"  jge {name}"
+  | .jz name        => s!"  jz {name}"
+  | .jnz name       => s!"  jnz {name}"
 
 def asm_to_string : Array Instruction → String := fun xs =>
   String.intercalate "\n" (xs.map toString).toList
