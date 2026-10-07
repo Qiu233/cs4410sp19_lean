@@ -1,0 +1,13 @@
+def id(x: Int) -> Int:
+  x
+
+def bump(x: Int) -> Int:
+  x + 1
+
+let a = id(10) in
+let b = id(20) in
+let c = id(30) in
+let d = id(40) in
+let e = id(50) in
+let f = id(60) in
+bump(a) + bump(b) + bump(c) + bump(d) + bump(e) + bump(f)

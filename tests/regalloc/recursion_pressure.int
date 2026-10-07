@@ -1,0 +1,9 @@
+def f(n: Int) -> Int:
+  if n <= 1: n
+  else:
+    let a = f(n - 1) in
+    let b = f(n - 2) in
+    let c = a + 3 in
+    a + b + c
+
+f(8)

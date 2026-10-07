@@ -9,6 +9,8 @@ namespace Assemble
 
 structure Context where
   frameSlots : Nat
+  savedEbx : Option Nat := none
+  savedEsi : Option Nat := none
 
 @[inline] private def Context.frameBytes (ctx : Context) : Nat :=
   ctx.frameSlots * 4
@@ -141,14 +143,26 @@ def prologue (ctx : Context) : Array Assembler.Instruction :=
         Assembler.Instruction.mov (Assembler.Arg.reg Assembler.Reg.ebp)
           (Assembler.Arg.reg Assembler.Reg.esp)]
     let frameBytes := ctx.frameBytes
-    if frameBytes == 0 then
-      insts
-    else
-      insts.push (Assembler.Instruction.sub (Assembler.Arg.reg Assembler.Reg.esp)
+    if frameBytes != 0 then
+      insts := insts.push (Assembler.Instruction.sub (Assembler.Arg.reg Assembler.Reg.esp)
         (Assembler.Arg.imm (UInt32.ofNat frameBytes)))
+    -- Keep locals EBP-relative, and start each outgoing call sequence aligned.
+    insts := insts.push (.and (.reg .esp) (.imm 0xfffffff0))
+    if let some slot := ctx.savedEbx then
+      insts := insts.push (.mov (toArg ctx (.frame slot)) (.reg .ebx))
+    if let some slot := ctx.savedEsi then
+      insts := insts.push (.mov (toArg ctx (.frame slot)) (.reg .esi))
+      insts := insts ++ #[.mov (.reg .esi) (.reg_offset .ebp 8),
+        .add (.reg .esi) (.imm 7), .and (.reg .esi) (.imm 0xfffffff8)]
+    return insts
 
-private def epilog : Array Assembler.Instruction :=
-  #[Assembler.Instruction.mov (Assembler.Arg.reg Assembler.Reg.esp)
+private def epilog (ctx : Context) : Array Assembler.Instruction := Id.run do
+  let mut insts := #[]
+  if let some slot := ctx.savedEbx then
+    insts := insts.push (.mov (.reg .ebx) (toArg ctx (.frame slot)))
+  if let some slot := ctx.savedEsi then
+    insts := insts.push (.mov (.reg .esi) (toArg ctx (.frame slot)))
+  return insts ++ #[Assembler.Instruction.mov (Assembler.Arg.reg Assembler.Reg.esp)
       (Assembler.Arg.reg Assembler.Reg.ebp),
     Assembler.Instruction.pop (Assembler.Arg.reg Assembler.Reg.ebp),
     Assembler.Instruction.ret]
@@ -158,7 +172,7 @@ private def assembleInst (ctx : Context) :
   | .mov _ dst src =>
       let _ := ensureDestNotImm "mov" dst
       let _ := ensureNotBothMem "mov" dst src
-      #[Assembler.Instruction.mov (toArg ctx dst) (toArg ctx src)]
+      if dst == src then #[] else #[Assembler.Instruction.mov (toArg ctx dst) (toArg ctx src)]
   | .add _ dst x y =>
       let _ := ensureTwoAddr "add" dst x
       let _ := ensureDestNotImm "add" dst
@@ -236,7 +250,7 @@ private def assembleTerminal (ctx : Context) :
   | .jnz _ target => #[Assembler.Instruction.jnz target]
   | .ret _ value =>
       let insts := #[Assembler.Instruction.mov (Assembler.Arg.reg Assembler.Reg.eax) (toArg ctx value)]
-      insts ++ epilog
+      insts ++ epilog ctx
   | term =>
       panic! s!"assemble: unsupported terminal after lowering: {term}"
 
@@ -254,8 +268,15 @@ end Assemble
 open Assemble
 
 def assemble (cfg : CFG Unit String AbsLoc) : Array Assembler.Instruction := Id.run do
-  let frameSlots := Assemble.requiredFrameSlots cfg
-  let ctx : Assemble.Context := { frameSlots := frameSlots }
+  let usesEbx := cfg.blocks.any fun b =>
+    b.insts.any (fun i => (instOperands i).contains (.preg .ebx)) ||
+      (termOperands b.terminal).contains (.preg .ebx)
+  let slots := Assemble.requiredFrameSlots cfg
+  let savedEbx := if usesEbx then some slots else none
+  let slots := slots + if usesEbx then 1 else 0
+  let savedEsi := if cfg.name.isEmpty then some slots else none
+  let slots := slots + if cfg.name.isEmpty then 1 else 0
+  let ctx : Assemble.Context := { frameSlots := slots, savedEbx, savedEsi }
   let mut insts : Array Assembler.Instruction := #[]
   let mut first := true
   for block in cfg.blocks do

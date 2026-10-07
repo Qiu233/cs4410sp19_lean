@@ -1,0 +1,16 @@
+def zero():
+  7
+
+def two(a, b):
+  a - b
+
+def three(a, b, c):
+  a + b + c
+
+def four(a, b, c, d):
+  a + b + c + d
+
+def five(a, b, c, d, e):
+  a + b + c + d + e
+
+zero() + two(9, 2) + three(1, 2, 3) + four(1, 2, 3, 4) + five(1, 2, 3, 4, 5)

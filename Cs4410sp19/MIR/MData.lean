@@ -162,7 +162,7 @@ def compute_mdata (cfg : CFG Unit String AbsLoc) : CFG InstMData String AbsLoc :
         match inst with
         | .add .. | .sub .. | .mul .. | .band .. | .bor .. | .xor .. | .shl .. | .shr .. | .sar .. =>
           add_flags := true
-        | .cmp .. | .test .. =>
+        | .cmp .. | .test .. | .pop' .. | .call' .. =>
           add_flags := true
         | _ => ()
         if add_flags then

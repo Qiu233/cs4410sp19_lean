@@ -304,21 +304,15 @@ structure CFG.Config (σ γ α : Type) [Hashable γ] [BEq γ] where
 deriving Inhabited, Repr
 
 private def CFG.config [Hashable γ] [BEq γ] : CFG σ γ α → CFG.Config σ γ α := fun cfg =>
-  assert! !cfg.blocks.isEmpty
   let quick_table := Std.HashMap.ofList <| Array.toList <| cfg.blocks.map fun x => (x.id, x)
-  let l := cfg.blocks.toList
-  let pairs := l.zipWith (ys := l.tail) fun x y => (x, y)
-  let edges : List (Edge γ) := pairs.flatMap fun (p, b) =>
+  let edges : List (Edge γ) := cfg.blocks.toList.zipIdx.flatMap fun (p, i) =>
+    let fallthrough := (cfg.blocks[i + 1]?).toList.map fun b => Edge.mk p.id b.id
     match p.terminal with
     | .jmp _ target   => [⟨p.id, target⟩]
     | .br _ _ lt' lf' => [⟨p.id, lt'⟩, ⟨p.id, lf'⟩]
-    | .jl _ target    => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .jle _ target   => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .jg _ target    => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .jge _ target   => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .jz _ target    => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .jnz _ target   => [⟨p.id, b.id⟩, ⟨p.id, target⟩]
-    | .ret _ _        => unreachable! -- impossible, because the returning block can only be the last block
+    | .jl _ target | .jle _ target | .jg _ target | .jge _ target
+    | .jz _ target | .jnz _ target => ⟨p.id, target⟩ :: fallthrough
+    | .ret _ _ => []
   let ss := edges.groupByKey fun x => x.P
   let ps := edges.groupByKey fun x => x.B
   ⟨ss, ps, quick_table⟩

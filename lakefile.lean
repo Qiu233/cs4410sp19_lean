@@ -14,6 +14,9 @@ lean_lib «Cs4410sp19» where
 lean_exe "cs4410sp19" where
   root := `Main
 
+lean_exe "ra-tests" where
+  root := `Tests.RegAlloc
+
 @[default_script]
 script «.» args do
   let name := args[0]?.getD "main"
@@ -85,4 +88,8 @@ script test args do
     traverse path test_file
   else
     test_file path
+  if args.isEmpty || (args[0]? == some "regalloc" && args[1]?.isNone) then
+    let status ← exe `«ra-tests» #[]
+    unless status == 0 do
+      throw <| IO.userError "register allocation tests failed"
   return 0

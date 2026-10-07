@@ -1,0 +1,13 @@
+def id(x: Int) -> Int:
+  x
+
+def f(n: Int) -> Int:
+  let a = n + 1 in
+  let b = n + 2 in
+  let c = n + 3 in
+  let d = n + 4 in
+  let e = n + 5 in
+  let mid = if n <= 0: id(a + b) else: id(c * d) in
+  a + b + c + d + e + mid
+
+f(0) + f(2) + f(-2)

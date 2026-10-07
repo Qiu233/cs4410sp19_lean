@@ -62,7 +62,7 @@ private def compile_decl (f : Decl (Location × Option (Typ String.Pos))) : Exce
   -- dbg_trace "block args eliminated:"
   -- dbg_trace "{SSA.pp_cfg' r.toCFG}\n"
 
-  let (r, s) := FreshM.run (MIR.construct r.toCFG |>.run' {}) {}
+  let (r, s) := FreshM.run (MIR.construct r.toCFG) {}
   -- dbg_trace "MIR constructed:"
   -- dbg_trace "{MIR.pp_cfg' r.toCFG}\n"
 
@@ -74,22 +74,16 @@ private def compile_decl (f : Decl (Location × Option (Typ String.Pos))) : Exce
   -- dbg_trace "call unfolded:"
   -- dbg_trace "{MIR.pp_cfg' r}\n"
 
-  let (r, s) := FreshM.run (MIR.form r) s
+  let (r, _) := FreshM.run (MIR.form r) s
   dbg_trace "two address formation:"
   dbg_trace "{MIR.pp_cfg' r}\n"
 
-  let r := MIR.compute_mdata r
-  -- dbg_trace "mdata:"
-  -- dbg_trace "{MIR.pp_cfg r}\n"
-
-  let intervals := MIR.build_live_intervals {r with}
-
-  let r := MIR.linear_scan_register_allocation {r with} intervals
+  let r ← MIR.allocate_registers r
 
   dbg_trace "\nregister allocated:"
-  dbg_trace "{MIR.pp_cfg' r.unsetTag.toCFG}\n"
+  dbg_trace "{MIR.pp_cfg' r}\n"
 
-  let asm := MIR.assemble r.toCFG.unsetTag
+  let asm := MIR.assemble r
   -- dbg_trace "{Assembler.asm_to_string asm}"
 
   return Assembler.asm_to_string asm
@@ -113,9 +107,6 @@ global our_code_starts_here
 {String.intercalate "\n" store.toList}
 \n
 our_code_starts_here:
-  mov esi, dword [esp + 4]
-  add ESI, 7
-  and ESI, 0xfffffff8\n
 {mainCode}
 "
 

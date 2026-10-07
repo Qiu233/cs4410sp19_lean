@@ -44,30 +44,15 @@ def operand_to_loc (op : SSA.Operand) : M AbsLoc := do
     return AbsLoc.imm (const_int_to_imm v)
 
 def resolve_pc_simple (xs : List (SSA.VarName × SSA.Operand)) : M (List (Inst Unit String MIR.AbsLoc)) := do
-  let mut g : Std.HashMap String String := {}
-  for (v, o) in xs do
-    match o with
-    | .param .. => unreachable!
-    | .var b => g := g.insert v.name b.name
-    | .const c => pure ()
-  let mut visited : Array String := #[]
-  while !g.isEmpty do
-    let t := g.filter fun v o => !g.contains o
-    if t.isEmpty then
-      break
-    for (v, o) in t do
-      visited := visited.push v
-      g := g.erase v
-      break
-  if !g.isEmpty then
-    panic! s!"{decl_name%}: pc contains rings" -- TODO: resolve rings instead of throw error
-  -- let r := xs.mergeSort fun (a, o) (b, o') =>
-  let xs' := xs.map fun x => ((visited.idxOf? x.fst.name).getD 0, x)
-  let xs' := xs'.mergeSort fun (i1, _) (i2, _) => i1 < i2
-  xs'.mapM fun (_, dst, x) => do
-    let dst' ← get_or_new_renaming' dst.name
-    let x' ← operand_to_loc x
-    return Inst.mov () dst' x'
+  -- Snapshot every RHS before any destination is overwritten. This handles
+  -- chains, cycles, constants and self copies uniformly; coloring can eliminate
+  -- redundant moves later. In particular a <- b, b <- c must read the old b.
+  let snapshots ← xs.mapM fun (dst, src) => do
+    let dst ← get_or_new_renaming' dst.name
+    let src ← operand_to_loc src
+    let tmp := AbsLoc.vreg ⟨← gensym ".pc"⟩
+    return (Inst.mov () tmp src, Inst.mov () dst tmp)
+  return snapshots.map Prod.fst ++ snapshots.map Prod.snd
 
 local macro "bin_op% " op:ident m:ident dst:term:arg x:term:arg y:term:arg : doElem => do
   let s ← `(doElem| do
@@ -218,9 +203,11 @@ def to_c_call (cfg : MIR.CFG Unit String MIR.AbsLoc) : MIR.CFG Unit String MIR.A
     let insts : Array (Inst Unit String MIR.AbsLoc) := b.insts.flatMap fun inst =>
       match inst with
       | .call _ d fn args =>
+        let padding := (4 - args.length % 4) % 4
+        let pads := Array.replicate padding (Inst.push () (.imm 0))
         let pushes := args.toArray.reverse.map fun arg => Inst.push () arg
-        let pops := args.toArray.map fun _ => Inst.pop' ()
-        pushes ++ #[.call' () fn, .mov () d (.preg .eax)] ++ pops
+        let pops := Array.replicate (args.length + padding) (Inst.pop' () : Inst Unit String AbsLoc)
+        pads ++ pushes ++ #[.call' () fn, .mov () d (.preg .eax)] ++ pops
       | _ => #[inst]
     { id := b.id, insts, terminal := b.terminal : BasicBlock Unit String MIR.AbsLoc }
   return { name := cfg.name, blocks := blocks }
@@ -228,44 +215,35 @@ def to_c_call (cfg : MIR.CFG Unit String MIR.AbsLoc) : MIR.CFG Unit String MIR.A
 private def genvreg [Monad m] [MonadNameGen m] (name : String) : m MIR.AbsLoc := (MIR.AbsLoc.vreg ∘ VReg.mk) <$> gensym name
 
 def form (cfg : MIR.CFG Unit String MIR.AbsLoc) : FreshM (MIR.CFG Unit String MIR.AbsLoc) := do
+  let binary := fun (ctor : Unit → AbsLoc → AbsLoc → AbsLoc → Inst Unit String AbsLoc)
+      (d x y : AbsLoc) => do
+    if d == x then return #[ctor () d d y]
+    -- A destination that aliases the RHS must not destroy it with the first MOV.
+    let (save, y) ← if d == y then do
+      let tmp ← genvreg ".twoaddr"
+      pure (#[Inst.mov () tmp y], tmp)
+    else pure (#[], y)
+    return save ++ #[Inst.mov () d x, ctor () d d y]
   let blocks ← cfg.blocks.mapM fun b => do
     let insts : Array (Inst Unit String MIR.AbsLoc) ← b.insts.flatMapM fun inst => do
       match inst with
-      | .add _ d x y =>
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .add () d d y]
-      | .sub _ d x y =>
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .sub () d d y]
-      | .band _ d x y =>
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .band () d d y]
-      | .bor _ d x y =>
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .bor () d d y]
-      | .xor _ d x y =>
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .xor () d d y]
-      | .shl _ d x y => -- TODO: check `y`, `y` must be imm
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .shl () d d y]
-      | .shr _ d x y => -- TODO: check `y`, `y` must be imm
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .shr () d d y]
-      | .sar _ d x y => -- TODO: check `y`, `y` must be imm
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .sar () d d y]
-      | .cmp _ x y => -- TODO: check `y`, `y` must be imm
+      | .add _ d x y => binary Inst.add d x y
+      | .sub _ d x y => binary Inst.sub d x y
+      | .band _ d x y => binary Inst.band d x y
+      | .bor _ d x y => binary Inst.bor d x y
+      | .xor _ d x y => binary Inst.xor d x y
+      | .mul _ d x y => binary Inst.mul d x y
+      | .shl _ d x y => binary Inst.shl d x y
+      | .shr _ d x y => binary Inst.shr d x y
+      | .sar _ d x y => binary Inst.sar d x y
+      | .cmp _ x y =>
         if (x matches .vreg ..) then return #[inst]
         let c ← genvreg "c"
         return #[Inst.mov () c x, .cmp () c y]
-      | .test _ x y => -- TODO: check `y`, `y` must be imm
+      | .test _ x y =>
         if (x matches .vreg ..) then return #[inst]
         let c ← genvreg "c"
         return #[Inst.mov () c x, .test () c y]
-      | .mul _ d x y => -- we will use imul
-        if (d matches .vreg ..) && d == x then return #[inst]
-        return #[Inst.mov () d x, .mul () d d y]
       | _ => return #[inst]
     return { id := b.id, insts, terminal := b.terminal : BasicBlock Unit String MIR.AbsLoc }
   return { name := cfg.name, blocks := blocks }

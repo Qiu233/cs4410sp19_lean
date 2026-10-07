@@ -1,0 +1,8 @@
+def id(x):
+  x
+
+let a = id(10) in
+let b = id(20) in
+let c = id(30) in
+let p = print(a + b) in
+a + b + c + p
