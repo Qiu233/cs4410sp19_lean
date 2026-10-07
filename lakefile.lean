@@ -2,6 +2,8 @@ import Lake
 open Lake DSL
 open System
 
+set_option linter.unusedVariables false
+
 package "cs4410sp19" where
   version := v!"0.1.0"
 

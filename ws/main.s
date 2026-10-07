@@ -1,4 +1,7 @@
 section .text
+global our_code_starts_here
+
+
 extern error
 extern error_tuple_size_mismatch
 extern print
@@ -23,86 +26,71 @@ error_non_tuple:
   call error
   add esp, 4 * 2
 
-prod:
-	push ebp
-	mov ebp, esp
-	sub esp, 4
-label_prod_body_0:
-	mov dword [esi + 4 * 0], 2
-	mov eax, dword [ebp + 4 * 3]
-	mov dword [esi + 4 * 1], eax
-	mov eax, dword [ebp + 4 * 2]
-	mov dword [esi + 4 * 2], eax
-	mov eax, esi
-	add eax, 1
-	add esi, 16
-	mov dword [ebp + 4 * -1], eax
-	mov dword [esi + 4 * 0], 3
-	mov eax, dword [ebp + 4 * 2]
-	mov dword [esi + 4 * 1], eax
-	mov eax, dword [ebp + 4 * 3]
-	mov dword [esi + 4 * 2], eax
-	mov eax, dword [ebp + 4 * -1]
-	mov dword [esi + 4 * 3], eax
-	mov eax, esi
-	add eax, 1
-	add esi, 16
-	mov esp, ebp
-	pop ebp
-	ret
 
-f:
-	push ebp
-	mov ebp, esp
-	sub esp, 4
-label_f_body_0:
-	mov eax, 2
-	push eax
-	call print
-	add esp, 4
-	mov dword [ebp + 4 * -1], eax
-	mov dword [esi + 4 * 0], 0
-	mov eax, esi
-	add eax, 1
-	add esi, 8
-	mov esp, ebp
-	pop ebp
-	ret
 
-global our_code_starts_here
+g:
+.entry:
+  push ebp
+  mov ebp, esp
+  sub esp, 12
+  mov eax, dword [ebp + 8]
+  mov dword [ebp + -4], eax
+  cmp dword [ebp + -4], 2
+  mov dword [ebp + -12], 2147483649
+  jle .skip.0
+.side.0:
+  mov dword [ebp + -12], 1
+  jmp .skip.0
+.skip.0:
+  cmp dword [ebp + -12], 2147483649
+  jz .split_.entry_.join.0_0.0
+.skip.1:
+  jmp .right.0
+.right.0:
+  mov eax, dword [ebp + -4]
+  mov dword [ebp + -8], eax
+  sub dword [ebp + -8], 2
+  push dword [ebp + -8]
+  call g
+  mov dword [ebp + -8], eax
+  add esp, 4
+  mov eax, dword [ebp + -4]
+  mov dword [ebp + -12], eax
+  mov eax, dword [ebp + -12]
+  imul eax, dword [ebp + -8]
+  mov dword [ebp + -12], eax
+  mov eax, dword [ebp + -12]
+  sar eax, 1
+  mov dword [ebp + -12], eax
+  mov eax, dword [ebp + -12]
+  mov dword [ebp + -12], eax
+  jmp .join.0
+.split_.entry_.join.0_0.0:
+  mov dword [ebp + -12], 2
+  jmp .join.0
+.join.0:
+  mov eax, dword [ebp + -12]
+  mov eax, eax
+  mov esp, ebp
+  pop ebp
+  ret
+
+
 our_code_starts_here:
   mov esi, dword [esp + 4]
   add ESI, 7
   and ESI, 0xfffffff8
-	push ebp
-	mov ebp, esp
-	sub esp, 8
-	mov eax, 2147483649
-	push eax
-	mov eax, 2
-	push eax
-	call prod
-	add esp, 8
-	mov dword [ebp + 4 * -1], eax
-	mov eax, dword [ebp + 4 * -1]
-	and eax, 7
-	cmp eax, 1
-	mov eax, dword [ebp + 4 * -1]
-	jnz error_non_tuple
-	sub eax, 1
-	cmp dword [eax + 4 * 0], 3
-	jnz error_tuple_size_mismatch
-	mov eax, dword [eax + 4 * 3]
-	mov dword [ebp + 4 * -2], eax
-	mov eax, dword [ebp + 4 * -2]
-	and eax, 7
-	cmp eax, 1
-	mov eax, dword [ebp + 4 * -2]
-	jnz error_non_tuple
-	sub eax, 1
-	cmp dword [eax + 4 * 0], 2
-	jnz error_tuple_size_mismatch
-	mov eax, dword [eax + 4 * 2]
-	mov esp, ebp
-	pop ebp
-	ret
+
+.entry:
+  push ebp
+  mov ebp, esp
+  sub esp, 4
+  push 10
+  call g
+  mov dword [ebp + -4], eax
+  add esp, 4
+  mov eax, dword [ebp + -4]
+  mov eax, eax
+  mov esp, ebp
+  pop ebp
+  ret

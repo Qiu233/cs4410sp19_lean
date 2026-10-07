@@ -10,28 +10,21 @@ inductive StackSlot where
   | esp : Int → StackSlot
 deriving BEq, Inhabited, Repr
 
-def StackSlot.to_arg : StackSlot → Arg
-  | .esp i => .reg_offset .esp i
-  | .ebp i => .reg_offset .ebp i
+-- def StackSlot.to_arg : StackSlot → Arg
+--   | .esp i => .reg_offset .esp i
+--   | .ebp i => .reg_offset .ebp i
+
+-- def const_false : Arg := .const 0x00000001
+-- def const_true : Arg := .const 0x80000001
 
 section
 
 structure Env where
-  names : Std.HashMap String Nat := {}
   functions : Std.HashSet String := {}
 
-abbrev CompileM := ExceptT String (StateM Env)
+abbrev CompileM := ExceptT String <| StateT Env <| FreshM
 
-def CompileM.run : CompileM α → Env → (Except String α × Env) := fun x env => x env
-
-def CompileM.gensym (pref : String) : CompileM String := do
-  let count ← modifyGet (fun s =>
-    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
-    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
-  let name := s!"{pref}_{count}"
-  return name
-
-instance : MonadNameGen CompileM := ⟨CompileM.gensym⟩
+def CompileM.run : CompileM α → Env → FreshM (Except String α × Env) := fun x env => x env
 
 def gen_label [MonadNameGen m] (suggestedName : String) : m String :=
   gensym s!"label_{suggestedName}"
@@ -96,6 +89,3 @@ def add_used_constants (name : String) : CompileFuncM Unit := do
 
 private def combine_insts [Monad m] : m (Array Instruction) → m (Array Instruction) → m (Array Instruction) :=
   fun x y => (· ++ ·) <$> x <*> y
-
-def const_false : Arg := .const 0x00000001
-def const_true : Arg := .const 0x80000001

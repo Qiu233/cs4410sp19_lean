@@ -18,7 +18,7 @@ def eliminate_dead_blocks [Hashable γ] [BEq γ] (cfg : CFG' σ γ δ α) : CFG'
       for x in r do
         ts.modify (Std.HashSet.insert · x)
         for s in succ[x]? do
-          for (a, i) in s do
+          for ⟨i, _, a, _⟩ in s do
             if !(← visited a) then -- not visited
               xs' := xs'.push a
       if xs'.isEmpty then

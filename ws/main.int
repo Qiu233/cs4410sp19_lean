@@ -1,8 +1,6 @@
-def prod(a, b):
-  (a, b, (b, a))
+def g(x):
+   if x <= 1: 1
+   else:
+      x * g(x - 1)
 
-def f() -> ():
-  let x = print(1) in
-  ()
-
-prod(1, true)[2 of 3][1 of 2]
+g(5)

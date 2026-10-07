@@ -1,12 +1,19 @@
 import Std
 import Cs4410sp19
+import Cs4410sp19.Cont
+import Cs4410sp19.SSA
+import Cs4410sp19.MIR
 
 open Cs4410sp19
 
+open MIR
+
 def _root_.main (args : List String) : IO Unit := do
-  let some input_file := args[0]? |
-    IO.println "no input file"
-    IO.Process.exit 255
+  let input_file ← match args[0]? with
+    | some f => pure f
+    | _ =>
+      IO.println "no input file"
+      IO.Process.exit 255
   let outIdx? := args.findIdx? (· == "-o")
   let out? := outIdx? >>= fun x => args[x + 1]?
   let input_program ← IO.FS.readFile ⟨input_file⟩

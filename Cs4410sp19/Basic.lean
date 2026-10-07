@@ -1,90 +1,90 @@
-
+import Std
 namespace Cs4410sp19
 
-inductive Reg where
-  | eax
-  | esp
-  | ebp
-  | esi
-deriving Inhabited
+-- inductive Reg where
+--   | eax
+--   | esp
+--   | ebp
+--   | esi
+-- deriving Inhabited
 
-inductive Arg where
-  | const : Int → Arg
-  | reg : Reg → Arg
-  | reg_offset : Reg → Int → Arg
-deriving Inhabited
+-- inductive Arg where
+--   | const : Int → Arg
+--   | reg : Reg → Arg
+--   | reg_offset : Reg → Int → Arg
+-- deriving Inhabited
 
-inductive Instruction where
-  | mov : Arg → Arg → Instruction
-  | push : Arg → Instruction
-  | pop : Arg → Instruction
-  | call : String → Instruction
-  | ret : Instruction
-  | add : Arg → Arg → Instruction
-  | sub : Arg → Arg → Instruction
-  | mul : Arg → Instruction
-  | shl : Arg → Arg → Instruction
-  | shr : Arg → Arg → Instruction
-  | sar : Arg → Arg → Instruction
-  | and : Arg → Arg → Instruction
-  | or : Arg → Arg → Instruction
-  | xor : Arg → Arg → Instruction
-  | label : String → Instruction
-  | cmp : Arg → Arg → Instruction
-  | test : Arg → Arg → Instruction
-  | jmp : String → Instruction
-  | je : String → Instruction
-  | jl : String → Instruction
-  | jle : String → Instruction
-  | jg : String → Instruction
-  | jge : String → Instruction
-  | jz : String → Instruction
-  | jnz : String → Instruction
-deriving Inhabited
+-- inductive Instruction where
+--   | mov : Arg → Arg → Instruction
+--   | push : Arg → Instruction
+--   | pop : Arg → Instruction
+--   | call : String → Instruction
+--   | ret : Instruction
+--   | add : Arg → Arg → Instruction
+--   | sub : Arg → Arg → Instruction
+--   | mul : Arg → Instruction
+--   | shl : Arg → Arg → Instruction
+--   | shr : Arg → Arg → Instruction
+--   | sar : Arg → Arg → Instruction
+--   | and : Arg → Arg → Instruction
+--   | or : Arg → Arg → Instruction
+--   | xor : Arg → Arg → Instruction
+--   | label : String → Instruction
+--   | cmp : Arg → Arg → Instruction
+--   | test : Arg → Arg → Instruction
+--   | jmp : String → Instruction
+--   | je : String → Instruction
+--   | jl : String → Instruction
+--   | jle : String → Instruction
+--   | jg : String → Instruction
+--   | jge : String → Instruction
+--   | jz : String → Instruction
+--   | jnz : String → Instruction
+-- deriving Inhabited
 
-instance : ToString Reg where
-  toString
-  | .eax => "eax"
-  | .esp => "esp"
-  | .ebp => "ebp"
-  | .esi => "esi"
+-- instance : ToString Reg where
+--   toString
+--   | .eax => "eax"
+--   | .esp => "esp"
+--   | .ebp => "ebp"
+--   | .esi => "esi"
 
-instance : ToString Arg where
-  toString
-  | .const v => s!"{v}"
-  | .reg r => s!"{r}"
-  | .reg_offset r i => s!"dword [{r} + 4 * {i}]"
+-- instance : ToString Arg where
+--   toString
+--   | .const v => s!"{v}"
+--   | .reg r => s!"{r}"
+--   | .reg_offset r i => s!"dword [{r} + 4 * {i}]"
 
-instance : ToString Instruction where
-  toString
-  | .mov dst src    => s!"\tmov {dst}, {src}"
-  | .push src       => s!"\tpush {src}"
-  | .pop src        => s!"\tpop {src}"
-  | .call dst       => s!"\tcall {dst}"
-  | .ret            => s!"\tret"
-  | .add dst src    => s!"\tadd {dst}, {src}"
-  | .sub dst src    => s!"\tsub {dst}, {src}"
-  | .mul src        => s!"\tmul {src}"
-  | .shl dst bits   => s!"\tshl {dst}, {bits}"
-  | .shr dst bits   => s!"\tshr {dst}, {bits}"
-  | .sar dst bits   => s!"\tsar {dst}, {bits}"
-  | .and dst src    => s!"\tand {dst}, {src}"
-  | .or dst src     => s!"\tor {dst}, {src}"
-  | .xor dst src    => s!"\txor {dst}, {src}"
-  | .label name     => s!"{name}:"
-  | .cmp x y        => s!"\tcmp {x}, {y}"
-  | .test x y       => s!"\ttest {x}, {y}"
-  | .jmp name       => s!"\tjmp {name}"
-  | .je name        => s!"\tje {name}"
-  | .jl name        => s!"\tjl {name}"
-  | .jle name       => s!"\tjle {name}"
-  | .jg name        => s!"\tjg {name}"
-  | .jge name       => s!"\tjge {name}"
-  | .jz name        => s!"\tjz {name}"
-  | .jnz name       => s!"\tjnz {name}"
+-- instance : ToString Instruction where
+--   toString
+--   | .mov dst src    => s!"\tmov {dst}, {src}"
+--   | .push src       => s!"\tpush {src}"
+--   | .pop src        => s!"\tpop {src}"
+--   | .call dst       => s!"\tcall {dst}"
+--   | .ret            => s!"\tret"
+--   | .add dst src    => s!"\tadd {dst}, {src}"
+--   | .sub dst src    => s!"\tsub {dst}, {src}"
+--   | .mul src        => s!"\tmul {src}"
+--   | .shl dst bits   => s!"\tshl {dst}, {bits}"
+--   | .shr dst bits   => s!"\tshr {dst}, {bits}"
+--   | .sar dst bits   => s!"\tsar {dst}, {bits}"
+--   | .and dst src    => s!"\tand {dst}, {src}"
+--   | .or dst src     => s!"\tor {dst}, {src}"
+--   | .xor dst src    => s!"\txor {dst}, {src}"
+--   | .label name     => s!"{name}:"
+--   | .cmp x y        => s!"\tcmp {x}, {y}"
+--   | .test x y       => s!"\ttest {x}, {y}"
+--   | .jmp name       => s!"\tjmp {name}"
+--   | .je name        => s!"\tje {name}"
+--   | .jl name        => s!"\tjl {name}"
+--   | .jle name       => s!"\tjle {name}"
+--   | .jg name        => s!"\tjg {name}"
+--   | .jge name       => s!"\tjge {name}"
+--   | .jz name        => s!"\tjz {name}"
+--   | .jnz name       => s!"\tjnz {name}"
 
-def asm_to_string : Array Instruction → String := fun xs =>
-  String.intercalate "\n" (xs.map toString).toList
+-- def asm_to_string : Array Instruction → String := fun xs =>
+--   String.intercalate "\n" (xs.map toString).toList
 
 inductive Prim1 where
   | neg | not
@@ -234,7 +234,44 @@ def Program.unsetTag : Program α → Program Unit := fun e => Id.run <| e.mapM 
 class MonadNameGen (m : Type → Type) where
   gensym : String → m String
 
+export MonadNameGen (gensym)
+
 instance {m n} [MonadLift m n] [inst : MonadNameGen m] : MonadNameGen n where
   gensym x := MonadLift.monadLift (inst.gensym x)
 
-export MonadNameGen (gensym)
+structure NameGen where
+  names : Std.HashMap String Nat := {}
+
+abbrev FreshM := StateM NameGen
+
+def FreshM.run (x : FreshM α) (ng : NameGen) : (α × NameGen) := StateT.run x ng
+
+def FreshM.gensym (pref : String) : FreshM String := do
+  let count ← modifyGet (fun s =>
+    let names' := s.names.alter pref (fun | .none => .some 0 | .some x => .some x)
+    (names'[pref]!, { s with names := names'.modify pref (· + 1) }))
+  let name := s!"{pref}.{count}"
+  return name
+
+instance : MonadNameGen FreshM where
+  gensym := FreshM.gensym
+
+-- structure Lens (m : Type → Type) (σ : Type) (α : Type) where
+--   get : σ → m α
+--   set : σ → α → m σ
+
+-- class NameLens (m : Type → Type) (σ : Type) extends ForIn m σ (Lens m σ String) where
+
+-- def NameLens.normalize [Monad m] [MonadNameGen m] (lens : NameLens m σ) (pref : String) : σ → m σ := fun input => do
+--   let lenses ← lens.toForIn.forIn (β := Array (Lens m σ String)) input {} (fun n b => pure (.yield <| b.push n))
+--   let mut rn : Std.HashMap String String := {}
+--   let mut t := input
+--   for lens in lenses do
+--     let v ← lens.get t
+--     if let some r := rn[v]? then
+--       t ← lens.set t r
+--     else
+--       let new ← gensym pref
+--       rn := rn.insert v new
+--       t ← lens.set t new
+--   return t
