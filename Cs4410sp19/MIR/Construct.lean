@@ -207,7 +207,7 @@ def reduce_lop (cfg : MIR.CFG Unit String MIR.AbsLoc) : FreshM (MIR.CFG Unit Str
       | blocks' := blocks'.push b; continue
     let cmp : Inst Unit String MIR.AbsLoc := Inst.cmp () cond (.imm (const_true))
     let skip ← gensym ".skip"
-    let b' := { id := b.id, insts := #[cmp], terminal := Terminal.jz () bt : BasicBlock Unit String MIR.AbsLoc }
+    let b' := { id := b.id, insts := b.insts.push cmp, terminal := Terminal.jz () bt : BasicBlock Unit String MIR.AbsLoc }
     let f' := { id := skip, insts := #[], terminal := Terminal.jmp () bf : BasicBlock Unit String MIR.AbsLoc }
     blocks' := blocks'.push b'
     blocks' := blocks'.push f'
